@@ -1,0 +1,91 @@
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '../db';
+import { FileText, Eye, Trash2, Plus } from 'lucide-react';
+
+interface TemplatesManagerTabProps {
+  onViewTemplate: (id: number) => void;
+}
+
+export default function TemplatesManagerTab({ onViewTemplate }: TemplatesManagerTabProps) {
+  const templates = useLiveQuery(() => 
+    db.sessions.filter(s => s.isTemplate === true).toArray()
+  );
+
+  const handleCreateTemplate = async () => {
+    const id = await db.sessions.add({
+      date: new Date().toISOString(),
+      name: "Nouveau Modèle",
+      isFinished: false,
+      isTemplate: true
+    });
+    onViewTemplate(id as number);
+  };
+
+  const handleDeleteTemplate = async (id: number) => {
+    if (confirm("Voulez-vous vraiment supprimer ce modèle ?")) {
+      const sessionExercises = await db.session_exercises.where('sessionId').equals(id).toArray();
+      for (const se of sessionExercises) {
+        await db.sets.where('sessionExerciseId').equals(se.id!).delete();
+      }
+      await db.session_exercises.where('sessionId').equals(id).delete();
+      await db.sessions.delete(id);
+    }
+  };
+
+  return (
+    <div className="h-full flex flex-col">
+      <div className="flex justify-between items-center mb-8 bg-white p-6 rounded-2xl shadow-sm border border-bg-alt">
+        <div>
+          <h2 className="text-2xl font-bold text-primary">Gérer les Modèles</h2>
+          <p className="text-secondary mt-1">Créez et organisez vos modèles de séance.</p>
+        </div>
+        <button 
+          onClick={handleCreateTemplate}
+          className="flex items-center gap-2 bg-accent hover:bg-accent-light text-white px-6 py-3 rounded-xl font-bold transition-colors shadow-md"
+        >
+          <Plus size={20} />
+          Nouveau modèle
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto pr-2 pb-10">
+        {!templates || templates.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-64 text-secondary bg-white rounded-2xl border border-accent-light/30">
+            <FileText size={48} className="text-accent/50 mb-4" />
+            <p className="text-lg">Aucun modèle pour le moment.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {templates.map(template => (
+              <div key={template.id} className="bg-white p-6 rounded-2xl shadow-sm border border-accent-light/30 flex flex-col group hover:border-accent transition-colors">
+                <div className="flex-1 mb-6">
+                  <div className="flex items-start justify-between">
+                    <h3 className="text-xl font-bold text-primary mb-2 line-clamp-2">{template.name}</h3>
+                    <div className="bg-accent/10 p-2 rounded-lg">
+                      <FileText size={20} className="text-accent" />
+                    </div>
+                  </div>
+                </div>
+                <div className="flex justify-between items-center pt-4 border-t border-bg-alt/50">
+                  <button 
+                    onClick={() => onViewTemplate(template.id!)}
+                    className="flex items-center gap-2 text-primary hover:text-accent font-semibold transition-colors"
+                  >
+                    <Eye size={18} />
+                    Modifier
+                  </button>
+                  <button 
+                    onClick={() => handleDeleteTemplate(template.id!)}
+                    className="text-secondary hover:text-red-500 transition-colors p-2 rounded-lg hover:bg-red-50"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

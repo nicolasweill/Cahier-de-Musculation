@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: var(--theme-primary);
+  --color-secondary: var(--theme-secondary);
+  --color-bg-alt: var(--theme-bg-alt);
+  --color-accent-light: var(--theme-accent-light);
+  --color-accent: var(--theme-accent);
+}
+
+@layer base {
+  :root {
+    /* Default Forest Theme */
+    --theme-primary: #283618;
+    --theme-secondary: #606c38;
+    --theme-accent: #bc6c25;
+    --theme-accent-light: #dda15e;
+    --theme-bg-alt: #fefae0;
+    
+    --background: var(--theme-bg-alt);
+    --foreground: var(--theme-primary);
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    @apply antialiased min-h-screen;
+  }
+}
