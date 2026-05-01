@@ -1,12 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Session } from '../db';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { Save, Plus, CheckCircle, FileText, Copy, Play, X } from 'lucide-react';
+import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import ExerciseList from './ExerciseList';
 import AddExerciseToSessionModal from './AddExerciseToSessionModal';
 import MarkdownEditor from './MarkdownEditor';
+import { getMuscleTags } from '../utils/muscleTags';
 
 interface SessionsTabProps {
   viewedSessionId?: number | null;
@@ -18,6 +20,7 @@ export default function SessionsTab({ viewedSessionId, setViewedSessionId }: Ses
   const [isAddExerciseModalOpen, setIsAddExerciseModalOpen] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+  const [sessionRadarMetric, setSessionRadarMetric] = useState<'volume' | 'reps' | 'frequency'>('volume');
 
   // Load the requested session or the most recent unfinished one
   const activeSession = useLiveQuery(
@@ -32,6 +35,35 @@ export default function SessionsTab({ viewedSessionId, setViewedSessionId }: Ses
   );
 
   const templates = useLiveQuery(() => db.sessions.filter(s => s.isTemplate === true).toArray());
+
+  const exercises = useLiveQuery(() => db.exercises.toArray());
+
+  const sessionMuscleData = useLiveQuery(async () => {
+    const id = activeSession?.id;
+    if (!id) return [];
+    const ses = await db.session_exercises.where('sessionId').equals(id).toArray();
+    if (ses.length === 0) return [];
+    const seIds = ses.map(se => se.id!);
+    const sets = await db.sets.where('sessionExerciseId').anyOf(seIds).toArray();
+    const exList = await db.exercises.toArray();
+    const stats: Record<string, { volume: number; reps: number; frequency: number }> = {};
+    for (const se of ses) {
+      const exercise = exList.find(ex => ex.id === se.exerciseId);
+      if (!exercise) continue;
+      const setsForSe = sets.filter(s => s.sessionExerciseId === se.id);
+      for (const set of setsForSe) {
+        const reps = (set.reps || '').split(',').reduce((sum, r) => sum + (parseInt(r, 10) || 0), 0);
+        const weight = parseFloat(String(set.weight)) || 0;
+        for (const muscle of getMuscleTags(exercise.category)) {
+          if (!stats[muscle]) stats[muscle] = { volume: 0, reps: 0, frequency: 0 };
+          stats[muscle].volume += weight * reps;
+          stats[muscle].reps += reps;
+          stats[muscle].frequency += 1;
+        }
+      }
+    }
+    return Object.entries(stats).map(([muscle, s]) => ({ muscle, ...s }));
+  }, [activeSession?.id]);
 
   useEffect(() => {
     if (activeSession?.id) {
@@ -253,14 +285,56 @@ export default function SessionsTab({ viewedSessionId, setViewedSessionId }: Ses
 
       <div className="flex-1 overflow-y-auto pb-20 pr-2">
         <section className="bg-white p-5 rounded-2xl shadow-sm border border-accent-light/30 mb-6">
-          <label className="block text-sm font-bold text-secondary uppercase mb-2">Notes Markdown</label>
-          <MarkdownEditor
-            value={activeSession.notes || ''}
-            onChange={(notes) => {
-              db.sessions.update(activeSession.id!, { notes });
-            }}
-            placeholder="Objectif, sensations, charge cible..."
-          />
+          <div className="flex flex-col md:flex-row gap-6">
+            <div className="md:w-2/3">
+              <label className="block text-sm font-bold text-secondary uppercase mb-2">Notes Markdown</label>
+              <MarkdownEditor
+                value={activeSession.notes || ''}
+                onChange={(notes) => {
+                  db.sessions.update(activeSession.id!, { notes });
+                }}
+                placeholder="Objectif, sensations, charge cible..."
+              />
+            </div>
+            <div className="md:w-1/3 flex flex-col">
+              <label className="block text-sm font-bold text-secondary uppercase mb-2">Muscles sollicités</label>
+              <div className="flex-1 h-[220px]">
+                {!sessionMuscleData || sessionMuscleData.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-secondary text-sm text-center">
+                    Ajoutez des exercices pour voir la répartition musculaire.
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RadarChart cx="50%" cy="50%" outerRadius="75%" data={sessionMuscleData}>
+                      <PolarGrid stroke="var(--theme-accent-light)" />
+                      <PolarAngleAxis dataKey="muscle" tick={{ fill: 'var(--theme-primary)', fontSize: 11, fontWeight: 'bold' }} />
+                      <PolarRadiusAxis angle={30} domain={[0, 'auto']} tick={false} axisLine={false} />
+                      <Radar
+                        name={sessionRadarMetric === 'volume' ? 'Volume (kg)' : sessionRadarMetric === 'frequency' ? 'Séries' : 'Répétitions'}
+                        dataKey={sessionRadarMetric}
+                        stroke="var(--theme-accent)"
+                        fill="var(--theme-accent)"
+                        fillOpacity={0.5}
+                      />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: 'var(--theme-primary)', borderRadius: '12px', border: 'none', color: 'var(--theme-bg-alt)' }}
+                        itemStyle={{ color: 'var(--theme-accent-light)', fontWeight: 'bold' }}
+                      />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+              <select
+                value={sessionRadarMetric}
+                onChange={(e) => setSessionRadarMetric(e.target.value as 'volume' | 'reps' | 'frequency')}
+                className="mt-3 bg-bg-alt border border-accent-light/50 rounded-xl px-3 py-2 text-sm text-primary focus:outline-none focus:ring-2 focus:ring-accent font-semibold cursor-pointer w-full"
+              >
+                <option value="volume">Volume soulevé (kg)</option>
+                <option value="frequency">Fréquence (Nb de séries)</option>
+                <option value="reps">Nombre de Répétitions</option>
+              </select>
+            </div>
+          </div>
         </section>
 
         <ExerciseList sessionId={activeSession.id!} />

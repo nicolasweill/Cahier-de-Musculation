@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
-import { FileText, Eye, Trash2, Plus } from 'lucide-react';
+import { FileText, Eye, Trash2, Plus, Search } from 'lucide-react';
 import { getSessionSummaries } from '../utils/sessionSummary';
 
 interface TemplatesManagerTabProps {
@@ -8,8 +9,14 @@ interface TemplatesManagerTabProps {
 }
 
 export default function TemplatesManagerTab({ onViewTemplate }: TemplatesManagerTabProps) {
-  const templates = useLiveQuery(async () => 
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const templates = useLiveQuery(async () =>
     getSessionSummaries(await db.sessions.filter(s => s.isTemplate === true).toArray())
+  );
+
+  const filteredTemplates = templates?.filter(({ session }) =>
+    session.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const handleCreateTemplate = async () => {
@@ -50,15 +57,26 @@ export default function TemplatesManagerTab({ onViewTemplate }: TemplatesManager
         </button>
       </div>
 
+      <div className="relative mb-6">
+        <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-secondary pointer-events-none" />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Rechercher un modèle..."
+          className="w-full bg-white border border-accent-light/50 rounded-xl pl-11 pr-4 py-3 text-sm text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-accent shadow-sm"
+        />
+      </div>
+
       <div className="flex-1 overflow-y-auto pr-2 pb-10">
-        {!templates || templates.length === 0 ? (
+        {!filteredTemplates || filteredTemplates.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-secondary bg-white rounded-2xl border border-accent-light/30">
             <FileText size={48} className="text-accent/50 mb-4" />
-            <p className="text-lg">Aucun modèle pour le moment.</p>
+            <p className="text-lg">{searchQuery ? 'Aucun résultat.' : 'Aucun modèle pour le moment.'}</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {templates.map(({ session: template, exercises, exerciseCount, setCount }) => (
+            {filteredTemplates.map(({ session: template, exercises, exerciseCount, setCount }) => (
               <div key={template.id} className="bg-white p-6 rounded-2xl shadow-sm border border-accent-light/30 flex flex-col group hover:border-accent transition-colors">
                 <div className="flex-1 mb-6">
                   <div className="flex items-start justify-between">

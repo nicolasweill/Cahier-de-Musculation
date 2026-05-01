@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Exercise } from '../db';
-import { Dumbbell, Trash2, Plus, Edit2 } from 'lucide-react';
+import { Dumbbell, Trash2, Plus, Edit2, Search } from 'lucide-react';
 import CreateExerciseModal from './CreateExerciseModal';
 import { getMuscleTags } from '../utils/muscleTags';
 
@@ -9,14 +9,19 @@ export default function ExercisesManagerTab() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [exerciseToEdit, setExerciseToEdit] = useState<Exercise | undefined>(undefined);
   const [rhythmEnabled, setRhythmEnabled] = useState(false);
-  
+  const [searchQuery, setSearchQuery] = useState('');
+
   const exercises = useLiveQuery(() => db.exercises.toArray());
 
   useEffect(() => {
     setRhythmEnabled(localStorage.getItem('app-rhythm-enabled') === 'true');
   }, []);
 
-  const groupedExercises = exercises?.reduce((acc, ex) => {
+  const filteredExercises = exercises?.filter(ex =>
+    ex.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const groupedExercises = filteredExercises?.reduce((acc, ex) => {
     const tags = getMuscleTags(ex.category);
     for (const tag of tags.length > 0 ? tags : ['Sans catégorie']) {
       const key = tag.toLocaleLowerCase();
@@ -54,6 +59,17 @@ export default function ExercisesManagerTab() {
           <Plus size={20} />
           Nouvel exercice
         </button>
+      </div>
+
+      <div className="relative mb-6">
+        <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-secondary pointer-events-none" />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Rechercher un exercice..."
+          className="w-full bg-white border border-accent-light/50 rounded-xl pl-11 pr-4 py-3 text-sm text-primary placeholder-secondary focus:outline-none focus:ring-2 focus:ring-accent shadow-sm"
+        />
       </div>
 
       <div className="flex-1 overflow-y-auto pr-2 pb-10 space-y-8">
@@ -119,10 +135,10 @@ export default function ExercisesManagerTab() {
           </div>
         ))}
 
-        {exercises?.length === 0 && (
+        {filteredExercises?.length === 0 && (
           <div className="flex flex-col items-center justify-center h-64 text-secondary bg-white rounded-2xl border border-accent-light/30">
             <Dumbbell size={48} className="text-accent/50 mb-4" />
-            <p className="text-lg">Aucun exercice trouvé.</p>
+            <p className="text-lg">{searchQuery ? 'Aucun résultat.' : 'Aucun exercice trouvé.'}</p>
           </div>
         )}
       </div>

@@ -323,7 +323,7 @@ export default function StatsTab() {
         <TrainingCalendar sessionStats={sessionStats} metric={volumeMetric} />
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          
+
           {/* Bloc: Volume Global */}
           <div className="col-span-1 md:col-span-3 bg-white p-6 rounded-2xl shadow-sm border border-accent-light/30">
             <div className="flex justify-between items-center mb-6">
