@@ -1,7 +1,8 @@
 export interface CustomFormula {
   id: string;
   name: string;
-  tokens: string[];
+  code?: string;
+  tokens?: string[];
   aggregator: 'sum' | 'max' | 'avg';
 }
 
@@ -25,6 +26,10 @@ export function parseRestTime(restStr: string): number {
 }
 
 export function evaluateFormula(formula: CustomFormula, ctx: SetContext): number {
+  if (formula.code?.trim()) {
+    return evaluatePythonFormula(formula.code, ctx);
+  }
+
   if (!formula.tokens || formula.tokens.length === 0) return 0;
 
   const tokenMap: Record<string, string> = {
@@ -50,6 +55,98 @@ export function evaluateFormula(formula: CustomFormula, ctx: SetContext): number
     return isNaN(val) || !isFinite(val) ? 0 : val;
   } catch (e) {
     console.warn("Formula evaluation error:", e);
+    return 0;
+  }
+}
+
+function transformPythonExpression(expr: string): string {
+  return expr
+    .replace(/\bmath\./g, 'Math.')
+    .replace(/\blog\s*\(/g, 'Math.log(')
+    .replace(/\bexp\s*\(/g, 'Math.exp(')
+    .replace(/\bsqrt\s*\(/g, 'Math.sqrt(')
+    .replace(/\bfloor\s*\(/g, 'Math.floor(')
+    .replace(/\bceil\s*\(/g, 'Math.ceil(')
+    .replace(/\bmin\s*\(/g, 'Math.min(')
+    .replace(/\bmax\s*\(/g, 'Math.max(')
+    .replace(/\babs\s*\(/g, 'Math.abs(')
+    .replace(/\bround\s*\(/g, 'Math.round(')
+    .replace(/\bTrue\b/g, 'true')
+    .replace(/\bFalse\b/g, 'false')
+    .replace(/\bNone\b/g, 'null')
+    .replace(/\band\b/g, '&&')
+    .replace(/\bor\b/g, '||')
+    .replace(/\bnot\b/g, '!')
+    .replace(/\*\*/g, '**');
+}
+
+function compilePythonLikeCode(code: string): string {
+  const lines = code.replace(/\r\n/g, '\n').split('\n');
+  const jsLines: string[] = [];
+  const indentStack: number[] = [];
+
+  for (const rawLine of lines) {
+    const withoutComment = rawLine.replace(/#.*$/, '');
+    if (!withoutComment.trim()) continue;
+
+    const indent = withoutComment.match(/^\s*/)?.[0].length ?? 0;
+    while (indentStack.length > 0 && indent <= indentStack[indentStack.length - 1]) {
+      jsLines.push('}');
+      indentStack.pop();
+    }
+
+    const line = withoutComment.trim();
+    const defMatch = line.match(/^def\s+([A-Za-z_]\w*)\s*\(([^)]*)\)\s*:\s*$/);
+    if (defMatch) {
+      jsLines.push(`function ${defMatch[1]}(${defMatch[2]}) {`);
+      indentStack.push(indent);
+      continue;
+    }
+
+    const returnMatch = line.match(/^return\s+(.+)$/);
+    if (returnMatch) {
+      jsLines.push(`return ${transformPythonExpression(returnMatch[1])};`);
+      continue;
+    }
+
+    const assignmentMatch = line.match(/^([A-Za-z_]\w*)\s*=\s*(.+)$/);
+    if (assignmentMatch) {
+      jsLines.push(`const ${assignmentMatch[1]} = ${transformPythonExpression(assignmentMatch[2])};`);
+      continue;
+    }
+
+    throw new Error(`Ligne Python non supportee: ${line}`);
+  }
+
+  while (indentStack.length > 0) {
+    jsLines.push('}');
+    indentStack.pop();
+  }
+
+  return jsLines.join('\n');
+}
+
+export function evaluatePythonFormula(code: string, ctx: SetContext): number {
+  try {
+    const jsCode = compilePythonLikeCode(code);
+    // The Lab executes user-authored local formulas. Inputs are numeric set context values.
+    // eslint-disable-next-line no-new-func
+    const fn = new Function(
+      'w',
+      'r',
+      'rm',
+      'rir',
+      'rest',
+      'idx',
+      'sup',
+      `${jsCode}
+if (typeof score !== 'function') throw new Error('La fonction score(...) est obligatoire.');
+return score(w, r, rm, rir, rest, idx, sup);`
+    );
+    const val = fn(ctx.w, ctx.r, ctx.rm, ctx.rir, ctx.rest, ctx.idx, ctx.sup);
+    return isNaN(val) || !isFinite(val) ? 0 : Number(val);
+  } catch (e) {
+    console.warn("Python formula evaluation error:", e);
     return 0;
   }
 }

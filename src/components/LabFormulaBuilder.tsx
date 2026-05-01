@@ -1,12 +1,7 @@
-import { useState } from 'react';
-import { X, Save, Plus, Trash2, Edit2, Play } from 'lucide-react';
-import type { CustomFormula } from '../utils/formulaUtils';
-import { 
-  AVAILABLE_VARIABLES, 
-  AVAILABLE_OPERATORS, 
-  AVAILABLE_FUNCTIONS, 
-  evaluateFormula 
-} from '../utils/formulaUtils';
+import { useMemo, useState } from 'react';
+import { X, Save, Plus, Trash2, Edit2, Play, Wand2, FlaskConical } from 'lucide-react';
+import type { CustomFormula, SetContext } from '../utils/formulaUtils';
+import { evaluateFormula } from '../utils/formulaUtils';
 
 interface LabFormulaBuilderProps {
   onClose: () => void;
@@ -14,116 +9,166 @@ interface LabFormulaBuilderProps {
   initialFormulas: CustomFormula[];
 }
 
+type TestSet = SetContext & {
+  label: string;
+};
+
+const DEFAULT_CODE = `def fatigue(rest):
+    return max(0.6, min(1.2, rest / 120))
+
+def score(w, r, rm, rir, rest, idx, sup):
+    intensity = 1 + (rm / 200)
+    return w * r * intensity * fatigue(rest)`;
+
+const LEGACY_TOKEN_LABELS: Record<string, string> = {
+  POIDS: 'w',
+  REPS: 'r',
+  RM: 'rm',
+  RIR: 'rir',
+  RECUP: 'rest',
+  SERIE_IDX: 'idx',
+  IS_SUPERSET: 'sup',
+  'log(': 'log(',
+  'exp(': 'exp(',
+  'sqrt(': 'sqrt(',
+  '^': '**'
+};
+
+const SAMPLE_SETS: TestSet[] = [
+  { label: 'Echauffement', w: 60, r: 12, rm: 84, rir: 4, rest: 90, idx: 1, sup: 0 },
+  { label: 'Travail lourd', w: 100, r: 6, rm: 120, rir: 1, rest: 180, idx: 2, sup: 0 },
+  { label: 'Superset', w: 72.5, r: 10, rm: 96.7, rir: 2, rest: 75, idx: 3, sup: 1 }
+];
+
+const DOC_VARIABLES = [
+  ['w', 'Charge utilisee en kg, poids du corps inclus si la charge contient BW.'],
+  ['r', 'Nombre total de repetitions de la serie.'],
+  ['rm', '1RM estime de la serie avec la formule actuelle de l app.'],
+  ['rir', 'RIR ou score metrique saisi sur la serie.'],
+  ['rest', 'Temps de recuperation en secondes.'],
+  ['idx', 'Position de la serie dans l exercice, en commencant a 1.'],
+  ['sup', '1 si la serie appartient a un superset, sinon 0.']
+];
+
+const DOC_FUNCTIONS = [
+  ['score(...)', 'Obligatoire. Retourne le score numerique de chaque serie.'],
+  ['def ma_fonction(...):', 'Permet de creer vos propres fonctions auxiliaires.'],
+  ['min, max, abs, round', 'Fonctions numeriques disponibles.'],
+  ['log, exp, sqrt', 'Fonctions mathematiques disponibles, utilisables directement.']
+];
+
+function legacyTokensToCode(tokens?: string[]) {
+  if (!tokens || tokens.length === 0) return DEFAULT_CODE;
+  const expression = tokens.map(token => LEGACY_TOKEN_LABELS[token] || token).join(' ');
+  return `def score(w, r, rm, rir, rest, idx, sup):
+    return ${expression}`;
+}
+
+function aggregateScores(scores: number[], aggregator: CustomFormula['aggregator']) {
+  if (scores.length === 0) return 0;
+  if (aggregator === 'max') return Math.max(...scores);
+  if (aggregator === 'avg') return scores.reduce((sum, score) => sum + score, 0) / scores.length;
+  return scores.reduce((sum, score) => sum + score, 0);
+}
+
+function makeRandomSet(index: number): TestSet {
+  const weight = Math.round((40 + Math.random() * 100) * 2) / 2;
+  const reps = Math.floor(4 + Math.random() * 12);
+  const rir = Math.floor(Math.random() * 5);
+  const rest = [60, 75, 90, 120, 150, 180][Math.floor(Math.random() * 6)];
+  return {
+    label: `Serie ${index}`,
+    w: weight,
+    r: reps,
+    rm: Math.round(weight * (1 + reps / 30) * 10) / 10,
+    rir,
+    rest,
+    idx: index,
+    sup: Math.random() > 0.75 ? 1 : 0
+  };
+}
+
 export default function LabFormulaBuilder({ onClose, onSave, initialFormulas }: LabFormulaBuilderProps) {
   const [formulas, setFormulas] = useState<CustomFormula[]>(initialFormulas);
   const [editingId, setEditingId] = useState<string | null>(null);
-  
   const [name, setName] = useState('');
-  const [aggregator, setAggregator] = useState<'sum' | 'max' | 'avg'>('sum');
-  const [tokens, setTokens] = useState<string[]>([]);
+  const [aggregator, setAggregator] = useState<CustomFormula['aggregator']>('sum');
+  const [code, setCode] = useState(DEFAULT_CODE);
+  const [testSets, setTestSets] = useState<TestSet[]>(SAMPLE_SETS);
 
-  const [testResult, setTestResult] = useState<number | null>(null);
+  const testScores = useMemo(() => {
+    const draftFormula: CustomFormula = { id: 'test', name: 'test', code, aggregator };
+    const scores = testSets.map(set => evaluateFormula(draftFormula, set));
+    return {
+      sets: scores,
+      total: aggregateScores(scores, aggregator)
+    };
+  }, [aggregator, code, testSets]);
 
-  const startEditing = (f?: CustomFormula) => {
-    if (f) {
-      setEditingId(f.id);
-      setName(f.name);
-      setAggregator(f.aggregator);
-      setTokens([...f.tokens]);
+  const startEditing = (formula?: CustomFormula) => {
+    if (formula) {
+      setEditingId(formula.id);
+      setName(formula.name);
+      setAggregator(formula.aggregator);
+      setCode(formula.code || legacyTokensToCode(formula.tokens));
     } else {
       setEditingId('new');
-      setName('Nouvelle Formule');
+      setName('Nouvelle formule Python');
       setAggregator('sum');
-      setTokens([]);
-    }
-    setTestResult(null);
-  };
-
-  const cancelEditing = () => {
-    setEditingId(null);
-  };
-
-  const deleteFormula = (id: string) => {
-    if (confirm("Supprimer cette formule ?")) {
-      const newFormulas = formulas.filter(f => f.id !== id);
-      setFormulas(newFormulas);
-      onSave(newFormulas);
+      setCode(DEFAULT_CODE);
     }
   };
 
   const saveCurrent = () => {
-    if (!name.trim() || tokens.length === 0) {
-      alert("La formule doit avoir un nom et ne pas être vide.");
+    if (!name.trim() || !code.trim()) {
+      alert('La formule doit avoir un nom et du code.');
       return;
     }
 
-    const newFormula: CustomFormula = {
+    const savedFormula: CustomFormula = {
       id: editingId === 'new' ? `lab-${Date.now()}` : editingId!,
       name: name.trim(),
-      tokens,
+      code,
       aggregator
     };
 
-    let newFormulas;
-    if (editingId === 'new') {
-      newFormulas = [...formulas, newFormula];
-    } else {
-      newFormulas = formulas.map(f => f.id === editingId ? newFormula : f);
-    }
+    const newFormulas = editingId === 'new'
+      ? [...formulas, savedFormula]
+      : formulas.map(formula => formula.id === editingId ? savedFormula : formula);
 
     setFormulas(newFormulas);
     onSave(newFormulas);
     setEditingId(null);
   };
 
-  const addToken = (tokenId: string) => {
-    setTokens([...tokens, tokenId]);
+  const deleteFormula = (id: string) => {
+    if (!confirm('Supprimer cette formule ?')) return;
+    const newFormulas = formulas.filter(formula => formula.id !== id);
+    setFormulas(newFormulas);
+    onSave(newFormulas);
   };
 
-  const removeLastToken = () => {
-    setTokens(tokens.slice(0, -1));
+  const generateExercise = () => {
+    const count = 3 + Math.floor(Math.random() * 4);
+    setTestSets(Array.from({ length: count }, (_, index) => makeRandomSet(index + 1)));
   };
 
-  const clearTokens = () => {
-    setTokens([]);
-  };
-
-  const testFormula = () => {
-    const dummyCtx = { w: 100, r: 10, rm: 133.3, rir: 2, rest: 120, idx: 1, sup: 0 };
-    const res = evaluateFormula({ id: 'test', name: 'test', tokens, aggregator }, dummyCtx);
-    setTestResult(res);
-  };
-
-  const renderToken = (tokenId: string, idx?: number) => {
-    const v = AVAILABLE_VARIABLES.find(x => x.id === tokenId);
-    if (v) {
-      return (
-        <span key={idx !== undefined ? idx : tokenId} className={`inline-block px-2 py-1 m-0.5 rounded-md border text-sm font-bold ${v.color}`}>
-          {v.label}
-        </span>
-      );
-    }
-    const isFunc = AVAILABLE_FUNCTIONS.some(x => x.id === tokenId);
-    return (
-      <span key={idx !== undefined ? idx : tokenId} className={`inline-block px-2 py-1 m-0.5 rounded-md border text-sm font-bold ${isFunc ? 'bg-indigo-100 text-indigo-800 border-indigo-300' : 'bg-gray-200 text-gray-800 border-gray-400'}`}>
-        {tokenId}
-      </span>
-    );
+  const generateSession = () => {
+    const count = 8 + Math.floor(Math.random() * 8);
+    setTestSets(Array.from({ length: count }, (_, index) => makeRandomSet(index + 1)));
   };
 
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl w-full max-w-4xl shadow-2xl flex flex-col max-h-full overflow-hidden">
-        
-        {/* Header */}
+      <div className="bg-white rounded-2xl w-full max-w-5xl shadow-2xl flex flex-col max-h-full overflow-hidden">
         <div className="p-6 border-b border-bg-alt flex justify-between items-center bg-primary text-white">
           <div className="flex items-center gap-3">
             <div className="bg-accent p-2 rounded-xl text-white">
-              <Play size={20} />
+              <FlaskConical size={20} />
             </div>
             <div>
               <h2 className="text-xl font-bold">Laboratoire de Performances</h2>
-              <p className="text-sm opacity-80">Créez vos propres métriques de calcul</p>
+              <p className="text-sm opacity-80">Codez vos propres metriques en syntaxe Python.</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors">
@@ -133,11 +178,10 @@ export default function LabFormulaBuilder({ onClose, onSave, initialFormulas }: 
 
         <div className="flex-1 overflow-y-auto p-6 bg-bg-alt/30">
           {!editingId ? (
-            // LIST VIEW
             <div className="space-y-6">
               <div className="flex justify-between items-center">
-                <h3 className="text-lg font-bold text-primary">Vos Formules</h3>
-                <button 
+                <h3 className="text-lg font-bold text-primary">Vos formules Python</h3>
+                <button
                   onClick={() => startEditing()}
                   className="bg-accent text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-accent-light transition-colors shadow-sm"
                 >
@@ -148,27 +192,27 @@ export default function LabFormulaBuilder({ onClose, onSave, initialFormulas }: 
 
               {formulas.length === 0 ? (
                 <div className="text-center py-10 bg-white rounded-2xl border border-dashed border-accent-light/50 text-secondary">
-                  <p>Aucune formule personnalisée.</p>
-                  <p className="text-sm mt-1">Créez votre première formule pour l'utiliser dans vos statistiques !</p>
+                  <p>Aucune formule personnalisee.</p>
+                  <p className="text-sm mt-1">Creez votre premiere fonction score pour l utiliser dans vos statistiques.</p>
                 </div>
               ) : (
                 <div className="grid gap-4">
-                  {formulas.map(f => (
-                    <div key={f.id} className="bg-white p-4 rounded-2xl border border-accent-light/30 shadow-sm flex items-center justify-between group">
-                      <div>
-                        <h4 className="font-bold text-primary text-lg">{f.name}</h4>
-                        <div className="flex flex-wrap items-center mt-2 opacity-80 pointer-events-none">
-                          {f.tokens.map((t, i) => renderToken(t, i))}
-                        </div>
+                  {formulas.map(formula => (
+                    <div key={formula.id} className="bg-white p-4 rounded-2xl border border-accent-light/30 shadow-sm flex items-center justify-between group">
+                      <div className="min-w-0">
+                        <h4 className="font-bold text-primary text-lg">{formula.name}</h4>
+                        <pre className="mt-2 max-h-20 overflow-hidden text-xs text-secondary bg-bg-alt/50 border border-accent-light/30 rounded-xl p-3 whitespace-pre-wrap">
+                          {formula.code || legacyTokensToCode(formula.tokens)}
+                        </pre>
                         <div className="mt-2 text-xs font-bold text-secondary uppercase tracking-wider">
-                          Agrégation Séance : {f.aggregator === 'sum' ? 'Somme' : f.aggregator === 'max' ? 'Maximum' : 'Moyenne'}
+                          Agregation seance : {formula.aggregator === 'sum' ? 'Somme' : formula.aggregator === 'max' ? 'Maximum' : 'Moyenne'}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => startEditing(f)} className="p-2 text-accent-light hover:text-accent hover:bg-accent/10 rounded-lg transition-colors">
+                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity ml-4">
+                        <button onClick={() => startEditing(formula)} className="p-2 text-accent-light hover:text-accent hover:bg-accent/10 rounded-lg transition-colors">
                           <Edit2 size={18} />
                         </button>
-                        <button onClick={() => deleteFormula(f.id)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                        <button onClick={() => deleteFormula(formula.id)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
                           <Trash2 size={18} />
                         </button>
                       </div>
@@ -178,12 +222,11 @@ export default function LabFormulaBuilder({ onClose, onSave, initialFormulas }: 
               )}
             </div>
           ) : (
-            // EDITOR VIEW
-            <div className="bg-white p-6 rounded-2xl border border-accent shadow-sm flex flex-col h-full">
+            <div className="bg-white p-6 rounded-2xl border border-accent shadow-sm">
               <div className="flex justify-between items-center mb-6">
-                <h3 className="text-lg font-bold text-primary">Éditeur d'Expression</h3>
+                <h3 className="text-lg font-bold text-primary">Editeur Python</h3>
                 <div className="flex gap-2">
-                  <button onClick={cancelEditing} className="px-4 py-2 text-secondary font-bold hover:bg-bg-alt rounded-xl transition-colors">
+                  <button onClick={() => setEditingId(null)} className="px-4 py-2 text-secondary font-bold hover:bg-bg-alt rounded-xl transition-colors">
                     Annuler
                   </button>
                   <button onClick={saveCurrent} className="bg-accent text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-accent-light transition-colors shadow-sm">
@@ -196,127 +239,110 @@ export default function LabFormulaBuilder({ onClose, onSave, initialFormulas }: 
               <div className="grid md:grid-cols-2 gap-4 mb-6">
                 <div>
                   <label className="block text-sm font-bold text-secondary uppercase mb-1">Nom de la formule</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     value={name}
-                    onChange={e => setName(e.target.value)}
+                    onChange={event => setName(event.target.value)}
                     className="w-full bg-bg-alt/50 border border-accent-light/50 rounded-xl px-4 py-2.5 text-primary focus:outline-none focus:ring-2 focus:ring-accent font-semibold"
-                    placeholder="Ex: Score d'Hypertrophie"
+                    placeholder="Ex: Score hypertrophie"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-secondary uppercase mb-1">Agrégation sur la séance</label>
-                  <select 
+                  <label className="block text-sm font-bold text-secondary uppercase mb-1">Agregation sur la seance</label>
+                  <select
                     value={aggregator}
-                    onChange={e => setAggregator(e.target.value as 'sum' | 'max' | 'avg')}
+                    onChange={event => setAggregator(event.target.value as CustomFormula['aggregator'])}
                     className="w-full bg-bg-alt/50 border border-accent-light/50 rounded-xl px-4 py-2.5 text-primary focus:outline-none focus:ring-2 focus:ring-accent font-semibold cursor-pointer"
                   >
-                    <option value="sum">Somme de toutes les séries</option>
-                    <option value="max">Prendre la meilleure série (Max)</option>
-                    <option value="avg">Moyenne des séries</option>
+                    <option value="sum">Somme de toutes les series</option>
+                    <option value="max">Prendre la meilleure serie</option>
+                    <option value="avg">Moyenne des series</option>
                   </select>
                 </div>
               </div>
 
-              {/* Expression Area */}
-              <div className="mb-6 flex flex-col">
-                <label className="block text-sm font-bold text-secondary uppercase mb-1">Formule de la Série</label>
-                <div className="min-h-[100px] p-4 bg-gray-50 border-2 border-dashed border-accent-light/50 rounded-xl flex flex-wrap content-start items-center gap-1">
-                  {tokens.length === 0 ? (
-                    <span className="text-secondary/50 italic">Cliquez sur les éléments ci-dessous pour construire votre formule...</span>
-                  ) : (
-                    tokens.map((t, idx) => renderToken(t, idx))
-                  )}
-                  {tokens.length > 0 && (
-                    <button onClick={removeLastToken} className="ml-2 text-xs font-bold text-red-500 hover:text-red-700 bg-red-50 px-2 py-1 rounded border border-red-200">
-                      ← Effacer
-                    </button>
-                  )}
-                </div>
-                <div className="flex justify-between items-center mt-2">
-                  <div className="flex gap-2">
-                    <button onClick={testFormula} className="text-sm font-bold text-accent hover:underline flex items-center gap-1">
-                      <Play size={14} /> Tester avec des valeurs fictives
-                    </button>
-                    {testResult !== null && (
-                      <span className="text-sm font-bold bg-accent/10 text-accent px-2 py-0.5 rounded">Résultat : {testResult.toFixed(2)}</span>
-                    )}
+              <div className="grid lg:grid-cols-[1.3fr_0.7fr] gap-6">
+                <div className="space-y-6">
+                  <div>
+                    <label className="block text-sm font-bold text-secondary uppercase mb-2">Code Python</label>
+                    <textarea
+                      value={code}
+                      onChange={event => setCode(event.target.value)}
+                      spellCheck={false}
+                      className="w-full min-h-[320px] bg-gray-950 text-green-100 border border-accent-light/50 rounded-xl px-4 py-3 font-mono text-sm leading-6 focus:outline-none focus:ring-2 focus:ring-accent"
+                    />
                   </div>
-                  <button onClick={clearTokens} className="text-sm text-secondary hover:text-primary transition-colors">
-                    Tout vider
-                  </button>
-                </div>
-              </div>
 
-              {/* Toolbar */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 border-t border-bg-alt pt-6">
-                <div>
-                  <h4 className="text-xs font-bold text-secondary uppercase mb-3">Variables</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {AVAILABLE_VARIABLES.map(v => (
-                      <button 
-                        key={v.id} 
-                        onClick={() => addToken(v.id)}
-                        className={`px-3 py-1.5 rounded-lg border text-sm font-bold shadow-sm hover:scale-105 active:scale-95 transition-transform ${v.color}`}
-                        title={v.label}
-                      >
-                        {v.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                
-                <div>
-                  <h4 className="text-xs font-bold text-secondary uppercase mb-3">Opérateurs</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {AVAILABLE_OPERATORS.map(o => (
-                      <button 
-                        key={o.id} 
-                        onClick={() => addToken(o.id)}
-                        className="w-10 h-10 flex items-center justify-center rounded-lg border border-gray-400 bg-gray-200 text-gray-800 text-lg font-black shadow-sm hover:bg-gray-300 active:scale-95 transition-all"
-                      >
-                        {o.label}
-                      </button>
-                    ))}
+                  <div className="bg-bg-alt/50 p-4 rounded-xl border border-accent-light/30">
+                    <h4 className="text-sm font-bold text-primary uppercase mb-3">Documentation</h4>
+                    <div className="grid md:grid-cols-2 gap-4 text-sm text-secondary">
+                      <div>
+                        <div className="font-bold text-primary mb-2">Variables</div>
+                        <div className="space-y-2">
+                          {DOC_VARIABLES.map(([variable, description]) => (
+                            <div key={variable}><code className="font-bold text-accent">{variable}</code> : {description}</div>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="font-bold text-primary mb-2">Fonctions</div>
+                        <div className="space-y-2">
+                          {DOC_FUNCTIONS.map(([fn, description]) => (
+                            <div key={fn}><code className="font-bold text-accent">{fn}</code> : {description}</div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                <div>
-                  <h4 className="text-xs font-bold text-secondary uppercase mb-3">Fonctions & Nombres</h4>
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    {AVAILABLE_FUNCTIONS.map(f => (
-                      <button 
-                        key={f.id} 
-                        onClick={() => addToken(f.id)}
-                        className="px-3 py-1.5 rounded-lg border border-indigo-300 bg-indigo-100 text-indigo-800 text-sm font-bold shadow-sm hover:bg-indigo-200 active:scale-95 transition-all"
-                      >
-                        {f.label}
+                <div className="space-y-4">
+                  <div className="bg-bg-alt/50 p-4 rounded-xl border border-accent-light/30">
+                    <div className="flex items-center justify-between gap-3 mb-3">
+                      <h4 className="text-sm font-bold text-primary uppercase">Tests fictifs</h4>
+                      <Play size={16} className="text-accent" />
+                    </div>
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      <button onClick={() => setTestSets([makeRandomSet(1)])} className="px-3 py-2 bg-white border border-accent-light/50 rounded-xl text-sm font-bold text-primary hover:bg-accent/10">
+                        Serie
                       </button>
-                    ))}
+                      <button onClick={generateExercise} className="px-3 py-2 bg-white border border-accent-light/50 rounded-xl text-sm font-bold text-primary hover:bg-accent/10">
+                        Exercice
+                      </button>
+                      <button onClick={generateSession} className="px-3 py-2 bg-white border border-accent-light/50 rounded-xl text-sm font-bold text-primary hover:bg-accent/10 flex items-center gap-2">
+                        <Wand2 size={14} />
+                        Seance
+                      </button>
+                    </div>
+
+                    <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
+                      {testSets.map((set, index) => (
+                        <div key={`${set.label}-${index}`} className="bg-white rounded-xl border border-accent-light/30 p-3 text-sm">
+                          <div className="flex justify-between font-bold text-primary">
+                            <span>{set.label}</span>
+                            <span>{testScores.sets[index].toFixed(2)}</span>
+                          </div>
+                          <div className="text-xs text-secondary mt-1">
+                            {set.w} kg x {set.r} reps, 1RM {set.rm}, RIR {set.rir}, repos {set.rest}s
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="mt-4 bg-primary text-white rounded-xl p-4">
+                      <div className="text-xs uppercase font-bold text-accent-light">Score agrege</div>
+                      <div className="text-3xl font-black">{testScores.total.toFixed(2)}</div>
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    {[1, 2, 3, 4, 5, 10, 100].map(n => (
-                      <button 
-                        key={n} 
-                        onClick={() => addToken(n.toString())}
-                        className="px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-gray-800 text-sm font-bold shadow-sm hover:bg-gray-50 active:scale-95 transition-all"
-                      >
-                        {n}
-                      </button>
-                    ))}
+
+                  <div className="text-xs text-secondary bg-white p-4 rounded-xl border border-accent-light/30">
+                    La syntaxe supporte les fonctions Python simples avec <code>def</code>, les variables locales, <code>return</code> et les expressions numeriques. La fonction <code>score(w, r, rm, rir, rest, idx, sup)</code> est obligatoire.
                   </div>
                 </div>
               </div>
-              
-              <div className="mt-6 text-xs text-secondary bg-bg-alt/50 p-4 rounded-xl border border-accent-light/30">
-                <strong>Astuce :</strong> Le moteur utilise une syntaxe mathématique standard. Assurez-vous d'équilibrer vos parenthèses. <br/>
-                <em>Exemples :</em> <code>POIDS * REPS</code> ou <code>( POIDS * REPS ) / log( RIR + 1 )</code>.
-              </div>
-
             </div>
           )}
         </div>
-
       </div>
     </div>
   );
