@@ -358,9 +358,9 @@ export default function StatsTab() {
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={globalVolumeData} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--theme-bg-alt)" vertical />
-                    <XAxis dataKey="date" stroke="var(--theme-secondary)" tick={{ fill: 'var(--theme-secondary)', fontSize: 12 }} axisLine={false} tickLine={false} />
-                    <YAxis stroke="var(--theme-secondary)" tick={{ fill: 'var(--theme-secondary)', fontSize: 12 }} axisLine={false} tickLine={false} tickCount={5} width={56} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--theme-bg-alt)" vertical={false} />
+                    <XAxis dataKey="date" stroke="var(--theme-secondary)" tick={{ fill: 'var(--theme-secondary)', fontSize: 12, dy: 6 }} axisLine={false} tickLine={{ stroke: 'var(--theme-secondary)', strokeWidth: 1 }} />
+                    <YAxis stroke="var(--theme-secondary)" tick={{ fill: 'var(--theme-secondary)', fontSize: 12 }} axisLine={{ stroke: 'var(--theme-bg-alt)', strokeWidth: 1 }} tickLine={{ stroke: 'var(--theme-bg-alt)', strokeWidth: 1 }} tickCount={6} width={56} />
                     <Tooltip 
                       contentStyle={{ backgroundColor: 'var(--theme-primary)', borderRadius: '12px', border: 'none', color: 'var(--theme-bg-alt)' }}
                       itemStyle={{ color: 'var(--theme-accent-light)', fontWeight: 'bold' }}

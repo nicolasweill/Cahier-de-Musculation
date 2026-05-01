@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Session } from '../db';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { Save, Plus, CheckCircle, FileText, Copy, Play } from 'lucide-react';
+import { Save, Plus, CheckCircle, FileText, Copy, Play, X } from 'lucide-react';
 import ExerciseList from './ExerciseList';
 import AddExerciseToSessionModal from './AddExerciseToSessionModal';
 import MarkdownEditor from './MarkdownEditor';
@@ -17,6 +17,7 @@ export default function SessionsTab({ viewedSessionId, setViewedSessionId }: Ses
   const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
   const [isAddExerciseModalOpen, setIsAddExerciseModalOpen] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
 
   // Load the requested session or the most recent unfinished one
   const activeSession = useLiveQuery(
@@ -92,6 +93,19 @@ export default function SessionsTab({ viewedSessionId, setViewedSessionId }: Ses
       setActiveSessionId(null);
       if (setViewedSessionId) setViewedSessionId(null);
     }
+  };
+
+  const handleDiscardSession = async () => {
+    const id = activeSession?.id;
+    if (id) {
+      const seIds = (await db.session_exercises.where('sessionId').equals(id).toArray()).map(se => se.id!);
+      if (seIds.length > 0) await db.sets.where('sessionExerciseId').anyOf(seIds).delete();
+      await db.session_exercises.where('sessionId').equals(id).delete();
+      await db.sessions.delete(id);
+    }
+    setShowDiscardConfirm(false);
+    setActiveSessionId(null);
+    if (setViewedSessionId) setViewedSessionId(null);
   };
 
   const handleUpdateDate = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -218,13 +232,22 @@ export default function SessionsTab({ viewedSessionId, setViewedSessionId }: Ses
             Enregistrer et Fermer
           </button>
         ) : (
-          <button 
-            onClick={handleFinishSession}
-            className="flex items-center gap-2 bg-primary hover:bg-secondary text-white px-6 py-3 rounded-xl font-bold transition-colors shadow-md shrink-0"
-          >
-            <Save size={20} />
-            Terminer la séance
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setShowDiscardConfirm(true)}
+              className="flex items-center gap-2 bg-white hover:bg-red-50 text-red-500 border border-red-200 hover:border-red-400 px-4 py-3 rounded-xl font-bold transition-colors"
+            >
+              <X size={18} />
+              Abandonner
+            </button>
+            <button
+              onClick={handleFinishSession}
+              className="flex items-center gap-2 bg-primary hover:bg-secondary text-white px-6 py-3 rounded-xl font-bold transition-colors shadow-md"
+            >
+              <Save size={20} />
+              Terminer la séance
+            </button>
+          </div>
         )}
       </div>
 
@@ -251,11 +274,34 @@ export default function SessionsTab({ viewedSessionId, setViewedSessionId }: Ses
         </button>
       </div>
 
-      <AddExerciseToSessionModal 
-        isOpen={isAddExerciseModalOpen} 
-        onClose={() => setIsAddExerciseModalOpen(false)} 
-        sessionId={activeSession.id!} 
+      <AddExerciseToSessionModal
+        isOpen={isAddExerciseModalOpen}
+        onClose={() => setIsAddExerciseModalOpen(false)}
+        sessionId={activeSession.id!}
       />
+
+      {showDiscardConfirm && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-xl p-8 max-w-sm w-full mx-4">
+            <h3 className="text-xl font-bold text-primary mb-2">Abandonner la séance ?</h3>
+            <p className="text-secondary mb-6">Tous les exercices et séries saisis seront définitivement supprimés.</p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowDiscardConfirm(false)}
+                className="px-5 py-2.5 rounded-xl font-bold text-secondary bg-bg-alt hover:bg-accent-light/20 transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleDiscardSession}
+                className="px-5 py-2.5 rounded-xl font-bold text-white bg-red-500 hover:bg-red-600 transition-colors"
+              >
+                Supprimer et fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
