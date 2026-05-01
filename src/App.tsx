@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Activity, BarChart2, History, Dumbbell, Settings, FileText, List } from 'lucide-react';
+import { Activity, BarChart2, History, Dumbbell, Settings, FileText, List, FlaskConical } from 'lucide-react';
 import { initDefaultData } from './db';
 import SessionsTab from './components/SessionsTab';
 import StatsTab from './components/StatsTab';
@@ -7,9 +7,10 @@ import HistoryTab from './components/HistoryTab';
 import SettingsTab, { PREDEFINED_THEMES } from './components/SettingsTab';
 import TemplatesManagerTab from './components/TemplatesManagerTab';
 import ExercisesManagerTab from './components/ExercisesManagerTab';
+import LabTab from './components/LabTab';
 
 function App() {
-  const [activeTab, setActiveTab] = useState<'sessions' | 'templates' | 'exercises' | 'stats' | 'history' | 'settings'>('sessions');
+  const [activeTab, setActiveTab] = useState<'sessions' | 'templates' | 'exercises' | 'stats' | 'history' | 'settings' | 'lab'>('sessions');
   const [viewedSessionId, setViewedSessionId] = useState<number | null>(null);
 
   useEffect(() => {
@@ -71,7 +72,15 @@ function App() {
             <span className="font-semibold text-lg">Statistiques</span>
           </button>
 
-          <button 
+          <button
+            onClick={() => { setActiveTab('lab'); setViewedSessionId(null); }}
+            className={`flex items-center gap-3 p-4 rounded-xl transition-all ${activeTab === 'lab' ? 'bg-primary shadow-lg translate-x-2' : 'hover:bg-primary/50 hover:translate-x-1'}`}
+          >
+            <FlaskConical size={20} className={activeTab === 'lab' ? 'text-accent-light' : ''} />
+            <span className="font-semibold text-lg">Laboratoire</span>
+          </button>
+
+          <button
             onClick={() => { setActiveTab('settings'); setViewedSessionId(null); }}
             className={`flex items-center gap-3 p-4 rounded-xl transition-all ${activeTab === 'settings' ? 'bg-primary shadow-lg translate-x-2' : 'hover:bg-primary/50 hover:translate-x-1'}`}
           >
@@ -106,6 +115,7 @@ function App() {
           {activeTab === 'templates' && <TemplatesManagerTab onViewTemplate={(id) => { setViewedSessionId(id); setActiveTab('sessions'); }} />}
           {activeTab === 'exercises' && <ExercisesManagerTab />}
           {activeTab === 'stats' && <StatsTab />}
+          {activeTab === 'lab' && <LabTab />}
           {activeTab === 'history' && <HistoryTab onViewSession={(id) => { setViewedSessionId(id); setActiveTab('sessions'); }} />}
           {activeTab === 'settings' && <SettingsTab />}
         </div>

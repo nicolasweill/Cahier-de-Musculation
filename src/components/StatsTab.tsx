@@ -17,9 +17,8 @@ import {
   PolarAngleAxis,
   PolarRadiusAxis,
 } from 'recharts';
-import { TrendingUp, Medal, Weight, Target, FlaskConical } from 'lucide-react';
+import { TrendingUp, Medal, Weight, Target } from 'lucide-react';
 import TrainingCalendar from './TrainingCalendar';
-import LabFormulaBuilder from './LabFormulaBuilder';
 import type { CustomFormula } from '../utils/formulaUtils';
 import { evaluateFormula, parseRestTime } from '../utils/formulaUtils';
 import { getMuscleTags } from '../utils/muscleTags';
@@ -31,20 +30,32 @@ export default function StatsTab() {
   });
 
   const [volumePeriod, setVolumePeriod] = useState<'day' | 'week' | 'month'>('week');
-  const [volumeMetric, setVolumeMetric] = useState<'volume' | 'reps'>('volume');
-  const [radarMetric, setRadarMetric] = useState<'volume' | 'reps' | 'frequency'>('volume');
   const [radarPeriod, setRadarPeriod] = useState<'day' | 'week' | 'month' | 'year' | 'all'>('all');
   const [weightUnit, setWeightUnit] = useState<'kg' | 'lbs'>('kg');
-  
+
   const [exerciseId, setExerciseId] = useState<number | null>(null);
-  const [metric, setMetric] = useState<string>('charge');
   const [setsCount, setSetsCount] = useState<number>(1);
 
-  const [showLab, setShowLab] = useState(false);
-  const [customFormulas, setCustomFormulas] = useState<CustomFormula[]>(() => {
+  // Metric indépendant par section
+  const [volumeSectionMetric, setVolumeSectionMetric] = useState<string>('volume');
+  const [radarSectionMetric, setRadarSectionMetric] = useState<string>('volume');
+  const [perfSectionMetric, setPerfSectionMetric] = useState<string>(() => localStorage.getItem('app-active-metric') || 'charge');
+
+  const [customFormulas] = useState<CustomFormula[]>(() => {
     const saved = localStorage.getItem('app-custom-formulas');
     return saved ? JSON.parse(saved) : [];
   });
+
+  const updatePerfMetric = (m: string) => {
+    setPerfSectionMetric(m);
+    localStorage.setItem('app-active-metric', m);
+  };
+
+  useEffect(() => {
+    if (perfSectionMetric !== 'charge' && perfSectionMetric !== '1rm' && !customFormulas.find(f => f.id === perfSectionMetric)) {
+      updatePerfMetric('charge');
+    }
+  }, []);
 
   const exercises = useLiveQuery(() => db.exercises.toArray());
   const allSessions = useLiveQuery(async () => {
@@ -110,40 +121,51 @@ export default function StatsTab() {
     return weight * (1 + reps / 30);
   };
 
+  // Formules filtrées par tag pour chaque section
+  const volumeEfficacyFormulas = customFormulas.filter(f => (f.tags || []).some(t => t === 'volume' || t === 'efficiency'));
+  const perfEfficacyFormulas = customFormulas.filter(f => (f.tags || []).some(t => t === 'performance' || t === 'efficiency'));
+
   const {
     sessionStats,
     globalVolumeData,
     perfChartData,
     muscleData,
-    personalRecord
+    personalRecord,
+    volumeFormula,
+    radarFormula,
+    perfFormula,
   } = useMemo(() => {
     if (!allSessions || !allSessionExercises || !allSets || !exercises) {
-      return { 
+      return {
         sessionStats: [],
-        globalVolumeData: [], 
-        perfChartData: [], 
-        muscleData: [], 
-        personalRecord: null
+        globalVolumeData: [],
+        perfChartData: [],
+        muscleData: [],
+        personalRecord: null,
+        volumeFormula: undefined,
+        radarFormula: undefined,
+        perfFormula: undefined,
       };
     }
 
-    const sStats: { date: Date; volume: number; reps: number }[] = [];
+    const volF = customFormulas.find(f => f.id === volumeSectionMetric);
+    const radF = customFormulas.find(f => f.id === radarSectionMetric);
+    const perF = customFormulas.find(f => f.id === perfSectionMetric);
 
+    const sStats: { date: Date; volume: number; reps: number }[] = [];
     const volumeGroups: Record<string, number> = {};
-    const statsByCategory: Record<string, { volume: number, reps: number, frequency: number }> = {};
-    
-    const pChartData = [];
-    const selectedCustomFormula = customFormulas.find(f => f.id === metric);
-    
+    const statsByCategory: Record<string, { volume: number; reps: number; frequency: number; formulaScore: number }> = {};
+    const pChartData: { date: string; Score: number }[] = [];
+
     let bestRecordScore = 0;
-    let bestRecordSetsBreakdown: { weight: number, reps: number }[] = [];
+    let bestRecordSetsBreakdown: { weight: number; reps: number }[] = [];
     let bestRecordDate = '';
     let bestRecordUnit = 'kg';
     const now = new Date();
 
     for (const session of allSessions) {
       const sessionDate = new Date(session.date);
-      const isWithinRadarPeriod = radarPeriod === 'all' 
+      const isWithinRadarPeriod = radarPeriod === 'all'
         || (radarPeriod === 'day' && isSameDay(sessionDate, now))
         || (radarPeriod === 'week' && isSameWeek(sessionDate, now, { weekStartsOn: 1 }))
         || (radarPeriod === 'month' && isSameMonth(sessionDate, now))
@@ -152,45 +174,58 @@ export default function StatsTab() {
       const ses = allSessionExercises.filter(se => se.sessionId === session.id);
       let sessionTotalVolume = 0;
       let sessionTotalReps = 0;
-      
+      let sessionVolFormScore = 0;
+
       let perfSessionScore = 0;
       let hasPerfExercise = false;
-      let sessionBest1RMSet: { weight: number, reps: number, rm1: number } | null = null;
-      let sessionTopSets: { weight: number, reps: number, volume: number }[] = [];
+      let sessionBest1RMSet: { weight: number; reps: number; rm1: number } | null = null;
+      let sessionTopSets: { weight: number; reps: number; volume: number; perfScore: number }[] = [];
 
       for (const se of ses) {
         const exercise = exercises.find(ex => ex.id === se.exerciseId);
         if (!exercise) continue;
-        
+
         const setsForSe = allSets.filter(s => s.sessionExerciseId === se.id);
-        
-        const customFormula = selectedCustomFormula;
-        
+
         const processedSets = setsForSe.map((set, idx) => {
           const reps = parseReps(set.reps);
           const weight = parseWeight(set.weight, userWeight, weightUnit);
           const rm1 = calculate1RM(weight, reps);
-          
-          let customScore = 0;
-          if (customFormula) {
-            const rir = set.metricScore ? parseFloat(set.metricScore) || 0 : 0;
-            const rest = parseRestTime(set.restTime);
-            const sup = se.supersetId ? 1 : 0;
-            customScore = evaluateFormula(customFormula, { w: weight, r: reps, rm: rm1, rir, rest, idx: idx + 1, sup });
-          }
-          
-          return { weight, reps, volume: weight * reps, rm1, customScore };
+          const ctx = {
+            w: weight, r: reps, rm: rm1,
+            rir: parseFloat(set.metricScore || '0') || 0,
+            rest: parseRestTime(set.restTime),
+            idx: idx + 1,
+            sup: se.supersetId ? 1 : 0,
+          };
+          // Évaluer chaque formule une seule fois avec cache par id
+          const scoreCache: Record<string, number> = {};
+          const evalF = (f: typeof volF) => {
+            if (!f) return 0;
+            if (!(f.id in scoreCache)) scoreCache[f.id] = evaluateFormula(f, ctx);
+            return scoreCache[f.id];
+          };
+          return {
+            weight, reps, volume: weight * reps, rm1,
+            volScore: evalF(volF),
+            radScore: evalF(radF),
+            perfScore: evalF(perF),
+          };
         });
+
+        // Accumulation volume/reps et scores par section
+        let exerciseVolFormScore = 0;
+        let exerciseRadFormScore = 0;
 
         for (const pSet of processedSets) {
           sessionTotalVolume += pSet.volume;
           sessionTotalReps += pSet.reps;
-          
+          exerciseVolFormScore += pSet.volScore;
+          exerciseRadFormScore += pSet.radScore;
+
           if ((pSet.volume > 0 || pSet.reps > 0) && isWithinRadarPeriod) {
             for (const muscle of getMuscleTags(exercise.category)) {
-              if (!statsByCategory[muscle]) {
-                statsByCategory[muscle] = { volume: 0, reps: 0, frequency: 0 };
-              }
+              if (!statsByCategory[muscle]) statsByCategory[muscle] = { volume: 0, reps: 0, frequency: 0, formulaScore: 0 };
               statsByCategory[muscle].volume += pSet.volume;
               statsByCategory[muscle].reps += pSet.reps;
               statsByCategory[muscle].frequency += 1;
@@ -198,38 +233,37 @@ export default function StatsTab() {
           }
         }
 
+        sessionVolFormScore += exerciseVolFormScore;
+
+        // Radar : formulaScore = somme par exercice (agrégation toujours somme)
+        if (radF && isWithinRadarPeriod && exerciseRadFormScore > 0) {
+          for (const muscle of getMuscleTags(exercise.category)) {
+            if (!statsByCategory[muscle]) statsByCategory[muscle] = { volume: 0, reps: 0, frequency: 0, formulaScore: 0 };
+            statsByCategory[muscle].formulaScore += exerciseRadFormScore;
+          }
+        }
+
+        // Par exercice : perf score
         if (se.exerciseId === exerciseId) {
           hasPerfExercise = true;
-          if (metric === '1rm') {
-            const bestSet = processedSets.reduce((best, current) => current.rm1 > best.rm1 ? current : best, { weight: 0, reps: 0, rm1: 0 });
-            if (!sessionBest1RMSet || bestSet.rm1 > sessionBest1RMSet.rm1) {
-              sessionBest1RMSet = bestSet;
-            }
-            if (bestSet.rm1 > perfSessionScore) {
-              perfSessionScore = bestSet.rm1;
-            }
-          } else if (customFormula) {
+          if (perfSectionMetric === '1rm') {
+            const bestSet = processedSets.reduce(
+              (best, cur) => cur.rm1 > best.rm1 ? cur : best,
+              { weight: 0, reps: 0, rm1: 0, volume: 0, volScore: 0, radScore: 0, perfScore: 0 }
+            );
+            if (!sessionBest1RMSet || bestSet.rm1 > sessionBest1RMSet.rm1) sessionBest1RMSet = bestSet;
+            if (bestSet.rm1 > perfSessionScore) perfSessionScore = bestSet.rm1;
+          } else if (perF) {
+            const topSets = [...processedSets].sort((a, b) => b.perfScore - a.perfScore).slice(0, setsCount);
             let score = 0;
-            if (customFormula.aggregator === 'sum') {
-              score = processedSets.reduce((sum, s) => sum + s.customScore, 0);
-            } else if (customFormula.aggregator === 'max') {
-              score = Math.max(...processedSets.map(s => s.customScore), 0);
-            } else if (customFormula.aggregator === 'avg') {
-              const sum = processedSets.reduce((sum, s) => sum + s.customScore, 0);
-              score = processedSets.length > 0 ? sum / processedSets.length : 0;
-            }
-            
-            if (score > perfSessionScore) {
-              perfSessionScore = score;
-              sessionTopSets = [...processedSets].sort((a, b) => b.customScore - a.customScore).slice(0, 1);
-            }
+            if (perF.aggregator === 'sum') score = topSets.reduce((s, p) => s + p.perfScore, 0);
+            else if (perF.aggregator === 'max') score = Math.max(...topSets.map(p => p.perfScore), 0);
+            else if (perF.aggregator === 'avg') { const sum = topSets.reduce((s, p) => s + p.perfScore, 0); score = topSets.length > 0 ? sum / topSets.length : 0; }
+            if (score > perfSessionScore) { perfSessionScore = score; sessionTopSets = topSets; }
           } else {
             const topSets = [...processedSets].sort((a, b) => b.volume - a.volume).slice(0, setsCount);
-            const score = topSets.reduce((sum, s) => sum + s.volume, 0);
-            if (score > perfSessionScore) {
-              perfSessionScore = score;
-              sessionTopSets = topSets;
-            }
+            const score = topSets.reduce((s, p) => s + p.volume, 0);
+            if (score > perfSessionScore) { perfSessionScore = score; sessionTopSets = topSets; }
           }
         }
       }
@@ -238,33 +272,23 @@ export default function StatsTab() {
 
       const groupDate = volumePeriod === 'day'
         ? startOfDay(sessionDate)
-        : volumePeriod === 'week' 
+        : volumePeriod === 'week'
           ? startOfWeek(sessionDate, { weekStartsOn: 1 })
           : startOfMonth(sessionDate);
-      
       const groupKey = format(groupDate, 'yyyy-MM-dd');
-      volumeGroups[groupKey] = (volumeGroups[groupKey] || 0) + (volumeMetric === 'volume' ? sessionTotalVolume : sessionTotalReps);
+      const sessionValue = volF ? sessionVolFormScore : (volumeSectionMetric === 'reps' ? sessionTotalReps : sessionTotalVolume);
+      volumeGroups[groupKey] = (volumeGroups[groupKey] || 0) + sessionValue;
 
       if (hasPerfExercise && perfSessionScore > 0) {
-        pChartData.push({
-          date: format(sessionDate, 'dd MMM', { locale: fr }),
-          Score: Math.round(perfSessionScore * 10) / 10
-        });
-
+        pChartData.push({ date: format(sessionDate, 'dd MMM', { locale: fr }), Score: Math.round(perfSessionScore * 10) / 10 });
         if (perfSessionScore > bestRecordScore) {
           bestRecordScore = perfSessionScore;
           bestRecordDate = format(sessionDate, 'dd MMM yyyy', { locale: fr });
-          bestRecordUnit = metric === '1rm' || metric === 'charge'
-            ? 'kg'
-            : selectedCustomFormula?.showUnit && selectedCustomFormula.unit
-              ? selectedCustomFormula.unit
-              : '';
-          
-          if (metric === '1rm' && sessionBest1RMSet) {
-            bestRecordSetsBreakdown = [{ weight: sessionBest1RMSet.weight, reps: sessionBest1RMSet.reps }];
-          } else {
-            bestRecordSetsBreakdown = sessionTopSets.map(s => ({ weight: s.weight, reps: s.reps }));
-          }
+          bestRecordUnit = perfSectionMetric === '1rm' || perfSectionMetric === 'charge'
+            ? 'kg' : perF?.showUnit && perF.unit ? perF.unit : '';
+          bestRecordSetsBreakdown = perfSectionMetric === '1rm' && sessionBest1RMSet
+            ? [{ weight: sessionBest1RMSet.weight, reps: sessionBest1RMSet.reps }]
+            : sessionTopSets.map(s => ({ weight: s.weight, reps: s.reps }));
         }
       }
     }
@@ -274,25 +298,27 @@ export default function StatsTab() {
       .map(([dateStr, val]) => ({
         date: volumePeriod === 'day'
           ? format(new Date(dateStr), 'dd MMM', { locale: fr })
-          : volumePeriod === 'week' 
+          : volumePeriod === 'week'
             ? `Sem. ${format(new Date(dateStr), 'dd MMM', { locale: fr })}`
             : format(new Date(dateStr), 'MMMM', { locale: fr }),
-        Value: val
+        Value: val,
       }));
 
-    const radarData = Object.entries(statsByCategory).map(([muscle, stats]) => ({
-      muscle,
-      ...stats
-    }));
+    const radarData = Object.entries(statsByCategory).map(([muscle, stats]) => ({ muscle, ...stats }));
 
     return {
       sessionStats: sStats,
       globalVolumeData: gVolData,
       perfChartData: pChartData,
       muscleData: radarData,
-      personalRecord: bestRecordScore > 0 ? { score: Math.round(bestRecordScore * 10) / 10, date: bestRecordDate, breakdown: bestRecordSetsBreakdown, unit: bestRecordUnit } : null,
+      personalRecord: bestRecordScore > 0
+        ? { score: Math.round(bestRecordScore * 10) / 10, date: bestRecordDate, breakdown: bestRecordSetsBreakdown, unit: bestRecordUnit }
+        : null,
+      volumeFormula: volF,
+      radarFormula: radF,
+      perfFormula: perF,
     };
-  }, [allSessions, allSessionExercises, allSets, exercises, volumePeriod, volumeMetric, exerciseId, metric, setsCount, userWeight, weightUnit, radarPeriod, customFormulas]);
+  }, [allSessions, allSessionExercises, allSets, exercises, volumePeriod, volumeSectionMetric, radarSectionMetric, perfSectionMetric, exerciseId, setsCount, userWeight, weightUnit, radarPeriod, customFormulas]);
 
   return (
     <div className="h-full flex flex-col">
@@ -320,7 +346,7 @@ export default function StatsTab() {
       </div>
 
       <div className="flex-1 overflow-y-auto pr-2 pb-10">
-        <TrainingCalendar sessionStats={sessionStats} metric={volumeMetric} />
+        <TrainingCalendar sessionStats={sessionStats} metric={volumeSectionMetric === 'reps' ? 'reps' : 'volume'} />
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
 
@@ -329,16 +355,23 @@ export default function StatsTab() {
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-lg font-bold text-primary flex items-center gap-2">
                 <TrendingUp size={20} className="text-accent" />
-                Volume d'entraînement
+                Par séance
               </h3>
               <div className="flex gap-2">
-                <select 
-                  value={volumeMetric}
-                  onChange={(e) => setVolumeMetric(e.target.value as 'volume' | 'reps')}
+                <select
+                  value={volumeSectionMetric}
+                  onChange={(e) => setVolumeSectionMetric(e.target.value)}
                   className="bg-bg-alt border border-accent-light/50 rounded-xl px-3 py-2 text-sm text-primary focus:outline-none focus:ring-2 focus:ring-accent font-semibold cursor-pointer"
                 >
                   <option value="volume">Volume (kg)</option>
                   <option value="reps">Répétitions</option>
+                  {volumeEfficacyFormulas.length > 0 && (
+                    <optgroup label="Formules Lab">
+                      {volumeEfficacyFormulas.map(f => (
+                        <option key={f.id} value={f.id}>{f.name}</option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
                 <select 
                   value={volumePeriod}
@@ -373,7 +406,7 @@ export default function StatsTab() {
                       strokeWidth={4}
                       dot={{ fill: 'var(--theme-accent)', strokeWidth: 2, r: 4, stroke: '#fff' }}
                       activeDot={{ r: 7, stroke: 'var(--theme-bg-alt)', strokeWidth: 2 }}
-                      name={volumeMetric === 'volume' ? 'Volume (kg)' : 'Répétitions'}
+                      name={volumeFormula ? volumeFormula.name : volumeSectionMetric === 'reps' ? 'Répétitions' : 'Volume (kg)'}
                     />
                   </LineChart>
                 </ResponsiveContainer>
@@ -386,7 +419,7 @@ export default function StatsTab() {
             <div className="p-6 border-b border-accent-light/30 flex justify-between flex-wrap gap-4 items-center bg-bg-alt/20">
               <h3 className="text-lg font-bold text-primary flex items-center gap-2">
                 <Target size={20} className="text-accent" />
-                Performances et Records
+                Par exercice
               </h3>
               <div className="flex gap-2 flex-wrap">
                 <select 
@@ -400,31 +433,24 @@ export default function StatsTab() {
                   ))}
                 </select>
 
-                <select 
-                  value={metric}
-                  onChange={(e) => setMetric(e.target.value)}
+                <select
+                  value={perfSectionMetric}
+                  onChange={(e) => updatePerfMetric(e.target.value)}
                   className="bg-white border border-accent-light/50 rounded-xl px-3 py-2 text-sm text-primary focus:outline-none focus:ring-2 focus:ring-accent font-semibold cursor-pointer shadow-sm"
                 >
                   <option value="charge">Charge pure</option>
                   <option value="1rm">1RM estimé</option>
-                  {customFormulas.length > 0 && (
-                    <optgroup label="Vos Formules (Lab)">
-                      {customFormulas.map(f => (
+                  {perfEfficacyFormulas.length > 0 && (
+                    <optgroup label="Formules Lab">
+                      {perfEfficacyFormulas.map(f => (
                         <option key={f.id} value={f.id}>{f.name}</option>
                       ))}
                     </optgroup>
                   )}
                 </select>
 
-                <button 
-                  onClick={() => setShowLab(true)}
-                  className="bg-accent text-white rounded-xl px-3 py-2 text-sm font-bold flex items-center gap-2 hover:bg-accent-light transition-colors shadow-sm"
-                >
-                  <FlaskConical size={16} /> Lab
-                </button>
-
-                {metric === 'charge' && (
-                  <select 
+                {(perfSectionMetric === 'charge' || !!perfFormula) && (
+                  <select
                     value={setsCount}
                     onChange={(e) => setSetsCount(Number(e.target.value))}
                     className="bg-white border border-accent-light/50 rounded-xl px-3 py-2 text-sm text-primary focus:outline-none focus:ring-2 focus:ring-accent font-semibold cursor-pointer shadow-sm"
@@ -461,7 +487,7 @@ export default function StatsTab() {
                         strokeWidth={4}
                         dot={{ fill: 'var(--theme-secondary)', strokeWidth: 2, r: 5, stroke: '#fff' }}
                         activeDot={{ r: 7, stroke: 'var(--theme-bg-alt)', strokeWidth: 2 }}
-                        name={metric === '1rm' ? '1RM (kg)' : metric === 'charge' ? 'Volume cumulé (kg)' : 'Score Lab'}
+                        name={perfSectionMetric === '1rm' ? '1RM (kg)' : perfSectionMetric === 'charge' ? 'Volume cumulé (kg)' : (perfFormula?.name || 'Score Lab')}
                       />
                     </LineChart>
                   </ResponsiveContainer>
@@ -476,7 +502,7 @@ export default function StatsTab() {
                 {personalRecord ? (
                   <div className="flex flex-col items-center">
                     <p className="text-bg-alt text-sm mb-2 text-center">
-                      {metric === '1rm' ? 'Meilleur 1RM' : metric === 'charge' ? `Score (${setsCount} meilleure${setsCount > 1 ? 's' : ''} série${setsCount > 1 ? 's' : ''})` : 'Score Lab Maximum'}
+                      {perfSectionMetric === '1rm' ? 'Meilleur 1RM' : perfSectionMetric === 'charge' ? `Score (${setsCount} meilleure${setsCount > 1 ? 's' : ''} série${setsCount > 1 ? 's' : ''})` : 'Score Lab Maximum'}
                     </p>
                     <p className="text-5xl font-bold text-center text-accent-light mb-6 drop-shadow-md">
                       {personalRecord.score} {personalRecord.unit && <span className="text-2xl">{personalRecord.unit}</span>}
@@ -522,14 +548,21 @@ export default function StatsTab() {
                   <option value="all">Tout le temps</option>
                 </select>
 
-                <select 
-                  value={radarMetric}
-                  onChange={(e) => setRadarMetric(e.target.value as 'volume' | 'reps' | 'frequency')}
+                <select
+                  value={radarSectionMetric}
+                  onChange={(e) => setRadarSectionMetric(e.target.value)}
                   className="bg-bg-alt border border-accent-light/50 rounded-xl px-3 py-2 text-sm text-primary focus:outline-none focus:ring-2 focus:ring-accent font-semibold cursor-pointer w-full"
                 >
                   <option value="volume">Volume soulevé (kg)</option>
                   <option value="frequency">Fréquence (Nb de séries)</option>
                   <option value="reps">Nombre de Répétitions</option>
+                  {volumeEfficacyFormulas.length > 0 && (
+                    <optgroup label="Formules Lab">
+                      {volumeEfficacyFormulas.map(f => (
+                        <option key={f.id} value={f.id}>{f.name}</option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
               </div>
             </div>
@@ -542,12 +575,12 @@ export default function StatsTab() {
                     <PolarGrid stroke="var(--theme-accent-light)" />
                     <PolarAngleAxis dataKey="muscle" tick={{ fill: 'var(--theme-primary)', fontSize: 12, fontWeight: 'bold' }} />
                     <PolarRadiusAxis angle={30} domain={[0, 'auto']} tick={false} axisLine={false} />
-                    <Radar 
-                      name={radarMetric === 'volume' ? 'Volume (kg)' : radarMetric === 'frequency' ? 'Séries' : 'Répétitions'} 
-                      dataKey={radarMetric} 
-                      stroke="var(--theme-accent)" 
-                      fill="var(--theme-accent)" 
-                      fillOpacity={0.5} 
+                    <Radar
+                      name={radarFormula ? radarFormula.name : (radarSectionMetric === 'volume' ? 'Volume (kg)' : radarSectionMetric === 'frequency' ? 'Séries' : 'Répétitions')}
+                      dataKey={radarFormula ? 'formulaScore' : radarSectionMetric}
+                      stroke="var(--theme-accent)"
+                      fill="var(--theme-accent)"
+                      fillOpacity={0.5}
                     />
                     <Tooltip 
                       contentStyle={{ backgroundColor: 'var(--theme-primary)', borderRadius: '12px', border: 'none', color: 'var(--theme-bg-alt)' }}
@@ -562,20 +595,6 @@ export default function StatsTab() {
         </div>
       </div>
 
-      {showLab && (
-        <LabFormulaBuilder 
-          initialFormulas={customFormulas}
-          onClose={() => setShowLab(false)}
-          onSave={(newFormulas) => {
-            setCustomFormulas(newFormulas);
-            localStorage.setItem('app-custom-formulas', JSON.stringify(newFormulas));
-            // If the deleted formula was active, fallback to charge
-            if (!newFormulas.find(f => f.id === metric)) {
-              setMetric('charge');
-            }
-          }}
-        />
-      )}
     </div>
   );
 }

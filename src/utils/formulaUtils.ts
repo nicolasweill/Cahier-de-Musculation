@@ -1,3 +1,5 @@
+export type FormulaTag = 'performance' | 'volume' | 'efficiency';
+
 export interface CustomFormula {
   id: string;
   name: string;
@@ -6,6 +8,7 @@ export interface CustomFormula {
   aggregator: 'sum' | 'max' | 'avg';
   showUnit?: boolean;
   unit?: string;
+  tags?: FormulaTag[];
 }
 
 export interface SetContext {

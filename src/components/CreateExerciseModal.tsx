@@ -173,18 +173,16 @@ export default function CreateExerciseModal({ isOpen, onClose, exerciseToEdit }:
             </div>
           </div>
 
-          {rhythmEnabled && (
-            <div>
-              <label className="block text-sm font-semibold text-secondary mb-2">Rythme par défaut</label>
-              <input 
-                type="text" 
-                value={defaultRhythm}
-                onChange={(e) => setDefaultRhythm(e.target.value)}
-                className="w-full bg-white border border-accent-light/50 rounded-xl px-4 py-3 text-primary focus:outline-none focus:ring-2 focus:ring-accent transition-all shadow-sm"
-                placeholder="ex: 3-1-1 ou contrôlé"
-              />
-            </div>
-          )}
+          <div>
+            <label className="block text-sm font-semibold text-secondary mb-2">Rythme par défaut</label>
+            <input 
+              type="text" 
+              value={defaultRhythm}
+              onChange={(e) => setDefaultRhythm(e.target.value)}
+              className="w-full bg-white border border-accent-light/50 rounded-xl px-4 py-3 text-primary focus:outline-none focus:ring-2 focus:ring-accent transition-all shadow-sm"
+              placeholder="ex: 3-1-1 ou contrôlé"
+            />
+          </div>
           
           <div className="pt-2">
             <button 
