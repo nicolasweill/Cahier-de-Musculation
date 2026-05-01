@@ -6,6 +6,7 @@ import { fr } from 'date-fns/locale';
 import { Save, Plus, CheckCircle, FileText, Copy, Play } from 'lucide-react';
 import ExerciseList from './ExerciseList';
 import AddExerciseToSessionModal from './AddExerciseToSessionModal';
+import MarkdownEditor from './MarkdownEditor';
 
 interface SessionsTabProps {
   viewedSessionId?: number | null;
@@ -44,7 +45,8 @@ export default function SessionsTab({ viewedSessionId, setViewedSessionId }: Ses
       date: new Date().toISOString(),
       name: `Séance du ${format(new Date(), 'dd MMM yyyy', { locale: fr })}`,
       isFinished: false,
-      isTemplate: false
+      isTemplate: false,
+      notes: ''
     });
     setActiveSessionId(id as number);
     if (setViewedSessionId) setViewedSessionId(null);
@@ -55,7 +57,8 @@ export default function SessionsTab({ viewedSessionId, setViewedSessionId }: Ses
       date: new Date().toISOString(),
       name: `${template.name}`,
       isFinished: false,
-      isTemplate: false
+      isTemplate: false,
+      notes: template.notes || ''
     });
 
     const templateExercises = await db.session_exercises.where('sessionId').equals(template.id!).toArray();
@@ -63,7 +66,9 @@ export default function SessionsTab({ viewedSessionId, setViewedSessionId }: Ses
       const newTeId = await db.session_exercises.add({
         sessionId: newSessionId as number,
         exerciseId: te.exerciseId,
-        order: te.order
+        order: te.order,
+        supersetId: te.supersetId,
+        rhythm: te.rhythm
       });
       const templateSets = await db.sets.where('sessionExerciseId').equals(te.id!).toArray();
       for (const ts of templateSets) {
@@ -72,6 +77,7 @@ export default function SessionsTab({ viewedSessionId, setViewedSessionId }: Ses
           weight: ts.weight,
           reps: ts.reps,
           restTime: ts.restTime,
+          metricScore: ts.metricScore,
           order: ts.order
         });
       }
@@ -223,6 +229,17 @@ export default function SessionsTab({ viewedSessionId, setViewedSessionId }: Ses
       </div>
 
       <div className="flex-1 overflow-y-auto pb-20 pr-2">
+        <section className="bg-white p-5 rounded-2xl shadow-sm border border-accent-light/30 mb-6">
+          <label className="block text-sm font-bold text-secondary uppercase mb-2">Notes Markdown</label>
+          <MarkdownEditor
+            value={activeSession.notes || ''}
+            onChange={(notes) => {
+              db.sessions.update(activeSession.id!, { notes });
+            }}
+            placeholder="Objectif, sensations, charge cible..."
+          />
+        </section>
+
         <ExerciseList sessionId={activeSession.id!} />
         
         <button 

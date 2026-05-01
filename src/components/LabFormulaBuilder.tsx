@@ -93,6 +93,8 @@ export default function LabFormulaBuilder({ onClose, onSave, initialFormulas }: 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [aggregator, setAggregator] = useState<CustomFormula['aggregator']>('sum');
+  const [showUnit, setShowUnit] = useState(false);
+  const [unit, setUnit] = useState('points');
   const [code, setCode] = useState(DEFAULT_CODE);
   const [testSets, setTestSets] = useState<TestSet[]>(SAMPLE_SETS);
 
@@ -110,11 +112,15 @@ export default function LabFormulaBuilder({ onClose, onSave, initialFormulas }: 
       setEditingId(formula.id);
       setName(formula.name);
       setAggregator(formula.aggregator);
+      setShowUnit(!!formula.showUnit);
+      setUnit(formula.unit || 'points');
       setCode(formula.code || legacyTokensToCode(formula.tokens));
     } else {
       setEditingId('new');
       setName('Nouvelle formule Python');
       setAggregator('sum');
+      setShowUnit(false);
+      setUnit('points');
       setCode(DEFAULT_CODE);
     }
   };
@@ -129,7 +135,9 @@ export default function LabFormulaBuilder({ onClose, onSave, initialFormulas }: 
       id: editingId === 'new' ? `lab-${Date.now()}` : editingId!,
       name: name.trim(),
       code,
-      aggregator
+      aggregator,
+      showUnit,
+      unit: showUnit ? unit.trim() || 'points' : ''
     };
 
     const newFormulas = editingId === 'new'
@@ -206,6 +214,7 @@ export default function LabFormulaBuilder({ onClose, onSave, initialFormulas }: 
                         </pre>
                         <div className="mt-2 text-xs font-bold text-secondary uppercase tracking-wider">
                           Agregation seance : {formula.aggregator === 'sum' ? 'Somme' : formula.aggregator === 'max' ? 'Maximum' : 'Moyenne'}
+                          {formula.showUnit && formula.unit ? ` · Unite : ${formula.unit}` : ' · Sans unite'}
                         </div>
                       </div>
                       <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity ml-4">
@@ -236,7 +245,7 @@ export default function LabFormulaBuilder({ onClose, onSave, initialFormulas }: 
                 </div>
               </div>
 
-              <div className="grid md:grid-cols-2 gap-4 mb-6">
+              <div className="grid md:grid-cols-3 gap-4 mb-6">
                 <div>
                   <label className="block text-sm font-bold text-secondary uppercase mb-1">Nom de la formule</label>
                   <input
@@ -258,6 +267,28 @@ export default function LabFormulaBuilder({ onClose, onSave, initialFormulas }: 
                     <option value="max">Prendre la meilleure serie</option>
                     <option value="avg">Moyenne des series</option>
                   </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-secondary uppercase mb-1">Unite du record</label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowUnit(!showUnit)}
+                      className={`px-3 py-2.5 rounded-xl border text-sm font-bold transition-colors ${
+                        showUnit ? 'bg-accent text-white border-accent' : 'bg-bg-alt/50 text-secondary border-accent-light/50'
+                      }`}
+                    >
+                      {showUnit ? 'Avec' : 'Sans'}
+                    </button>
+                    <input
+                      type="text"
+                      value={unit}
+                      onChange={event => setUnit(event.target.value)}
+                      disabled={!showUnit}
+                      className="min-w-0 flex-1 bg-bg-alt/50 border border-accent-light/50 rounded-xl px-3 py-2.5 text-primary focus:outline-none focus:ring-2 focus:ring-accent font-semibold disabled:opacity-40"
+                      placeholder="points"
+                    />
+                  </div>
                 </div>
               </div>
 

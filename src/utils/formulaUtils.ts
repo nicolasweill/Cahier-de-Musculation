@@ -4,6 +4,8 @@ export interface CustomFormula {
   code?: string;
   tokens?: string[];
   aggregator: 'sum' | 'max' | 'avg';
+  showUnit?: boolean;
+  unit?: string;
 }
 
 export interface SetContext {

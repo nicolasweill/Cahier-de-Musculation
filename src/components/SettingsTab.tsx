@@ -85,6 +85,8 @@ export default function SettingsTab() {
   const [draggedColorKey, setDraggedColorKey] = useState<ThemeColorKey | null>(null);
   const [advancedMetrics, setAdvancedMetrics] = useState(false);
   const [metricType, setMetricType] = useState<'RIR' | 'RPE'>('RIR');
+  const [weightUnit, setWeightUnit] = useState<'kg' | 'lbs'>('kg');
+  const [rhythmEnabled, setRhythmEnabled] = useState(false);
 
   useEffect(() => {
     const savedPalettes = localStorage.getItem('app-custom-palettes');
@@ -116,6 +118,13 @@ export default function SettingsTab() {
 
     const savedMetrics = localStorage.getItem('app-advanced-metrics');
     if (savedMetrics) setAdvancedMetrics(savedMetrics === 'true');
+
+    const savedWeightUnit = localStorage.getItem('app-weight-unit');
+    if (savedWeightUnit === 'kg' || savedWeightUnit === 'lbs') {
+      setWeightUnit(savedWeightUnit);
+    }
+
+    setRhythmEnabled(localStorage.getItem('app-rhythm-enabled') === 'true');
     
     const savedMetricType = localStorage.getItem('app-metric-type');
     if (savedMetricType === 'RIR' || savedMetricType === 'RPE') {
@@ -193,13 +202,38 @@ export default function SettingsTab() {
 
     if (colors.length < 5) return null;
 
-    return {
-      primary: colors[0],
-      secondary: colors[1],
-      accent: colors[2],
-      accentLight: colors[3],
-      bgAlt: colors[4]
-    };
+    return assignPaletteColors(colors);
+  };
+
+  const getLuminance = (hex: string) => {
+    const clean = hex.replace('#', '');
+    const r = parseInt(clean.slice(0, 2), 16) / 255;
+    const g = parseInt(clean.slice(2, 4), 16) / 255;
+    const b = parseInt(clean.slice(4, 6), 16) / 255;
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+
+  const getSaturation = (hex: string) => {
+    const clean = hex.replace('#', '');
+    const values = [
+      parseInt(clean.slice(0, 2), 16),
+      parseInt(clean.slice(2, 4), 16),
+      parseInt(clean.slice(4, 6), 16)
+    ];
+    return (Math.max(...values) - Math.min(...values)) / 255;
+  };
+
+  const assignPaletteColors = (colors: string[]): ThemePalette['colors'] => {
+    const sortedByLight = [...colors].sort((a, b) => getLuminance(a) - getLuminance(b));
+    const bgAlt = sortedByLight[sortedByLight.length - 1];
+    const primary = sortedByLight[0];
+    const remaining = colors.filter(color => color !== bgAlt && color !== primary);
+    const accent = [...remaining].sort((a, b) => getSaturation(b) - getSaturation(a))[0] || sortedByLight[2];
+    const secondaryCandidates = remaining.filter(color => color !== accent);
+    const secondary = [...secondaryCandidates].sort((a, b) => getLuminance(a) - getLuminance(b))[0] || sortedByLight[1];
+    const accentLight = secondaryCandidates.find(color => color !== secondary) || sortedByLight[sortedByLight.length - 2];
+
+    return { primary, secondary, accent, accentLight, bgAlt };
   };
 
   const handleImportPalette = () => {
@@ -248,6 +282,17 @@ export default function SettingsTab() {
   const handleMetricTypeChange = (type: 'RIR' | 'RPE') => {
     setMetricType(type);
     localStorage.setItem('app-metric-type', type);
+  };
+
+  const handleWeightUnitChange = (unit: 'kg' | 'lbs') => {
+    setWeightUnit(unit);
+    localStorage.setItem('app-weight-unit', unit);
+  };
+
+  const handleToggleRhythm = () => {
+    const newValue = !rhythmEnabled;
+    setRhythmEnabled(newValue);
+    localStorage.setItem('app-rhythm-enabled', newValue.toString());
   };
 
   return (
@@ -445,6 +490,44 @@ export default function SettingsTab() {
           </h3>
           
           <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between gap-6">
+              <div>
+                <div className="font-bold text-primary">Unité de charge par défaut</div>
+                <div className="text-sm text-secondary">Les poids sans suffixe seront interprétés dans cette unité.</div>
+              </div>
+              <div className="flex bg-bg-alt border border-accent-light/50 rounded-xl p-1 shrink-0">
+                {(['kg', 'lbs'] as const).map(unit => (
+                  <button
+                    key={unit}
+                    onClick={() => handleWeightUnitChange(unit)}
+                    className={`px-4 py-2 rounded-lg text-sm font-bold uppercase transition-colors ${
+                      weightUnit === unit ? 'bg-accent text-white shadow-sm' : 'text-secondary hover:text-primary'
+                    }`}
+                  >
+                    {unit}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-bold text-primary">Rythme des exercices</div>
+                <div className="text-sm text-secondary">Ajoute un champ rythme sur les exercices et dans les séances.</div>
+              </div>
+              <button
+                onClick={handleToggleRhythm}
+                className={`w-12 h-6 rounded-full p-1 transition-colors ${
+                  rhythmEnabled ? 'bg-accent' : 'bg-gray-200'
+                }`}
+              >
+                <div
+                  className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
+                    rhythmEnabled ? 'translate-x-6' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
             <div className="flex items-center justify-between">
               <div>
                 <div className="font-bold text-primary">Métriques avancées</div>

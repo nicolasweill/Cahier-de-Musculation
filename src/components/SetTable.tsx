@@ -15,6 +15,7 @@ export default function SetTable({ sessionExerciseId }: SetTableProps) {
 
   const [advancedMetrics, setAdvancedMetrics] = useState(false);
   const [metricType, setMetricType] = useState<'RIR' | 'RPE'>('RIR');
+  const [weightUnit, setWeightUnit] = useState<'kg' | 'lbs'>('kg');
 
   useEffect(() => {
     const savedMetrics = localStorage.getItem('app-advanced-metrics');
@@ -24,6 +25,10 @@ export default function SetTable({ sessionExerciseId }: SetTableProps) {
       if (savedType === 'RIR' || savedType === 'RPE') {
         setMetricType(savedType);
       }
+    }
+    const savedWeightUnit = localStorage.getItem('app-weight-unit');
+    if (savedWeightUnit === 'kg' || savedWeightUnit === 'lbs') {
+      setWeightUnit(savedWeightUnit);
     }
   }, []);
 
@@ -68,7 +73,7 @@ export default function SetTable({ sessionExerciseId }: SetTableProps) {
         style={gridStyle}
       >
         <div>Série</div>
-        <div>Poids (kg)</div>
+        <div>Poids ({weightUnit})</div>
         <div>Répétitions</div>
         <div>Repos</div>
         {advancedMetrics && <div>{metricType}</div>}
@@ -90,7 +95,7 @@ export default function SetTable({ sessionExerciseId }: SetTableProps) {
               value={set.weight || ''}
               onChange={(e) => handleUpdateSet(set.id!, 'weight', e.target.value)}
               className="w-full bg-bg-alt/50 border border-accent-light/30 rounded-lg px-1 md:px-2 py-1.5 text-center text-primary focus:outline-none focus:ring-2 focus:ring-accent focus:bg-white transition-all font-semibold text-sm md:text-base placeholder:opacity-40"
-              placeholder="ex: BW+10"
+              placeholder={weightUnit === 'kg' ? 'ex: 20 + 90lbs' : 'ex: 45 + 20kg'}
             />
           </div>
           <div>

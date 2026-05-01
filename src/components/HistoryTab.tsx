@@ -3,6 +3,7 @@ import { db } from '../db';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { Trash2, Download, Upload, Eye } from 'lucide-react';
+import { getSessionSummaries } from '../utils/sessionSummary';
 
 interface HistoryTabProps {
   onViewSession: (id: number) => void;
@@ -12,7 +13,7 @@ export default function HistoryTab({ onViewSession }: HistoryTabProps) {
   const sessions = useLiveQuery(
     async () => {
       const all = await db.sessions.orderBy('date').reverse().toArray();
-      return all.filter(s => !s.isTemplate);
+      return getSessionSummaries(all.filter(s => !s.isTemplate));
     }
   );
 
@@ -115,9 +116,9 @@ export default function HistoryTab({ onViewSession }: HistoryTabProps) {
             <p className="text-secondary">Aucune séance enregistrée pour le moment.</p>
           </div>
         ) : (
-          sessions.map(session => (
-            <div key={session.id} className="bg-white p-6 rounded-2xl shadow-sm border border-accent-light/30 flex justify-between items-center group">
-              <div>
+          sessions.map(({ session, exercises, exerciseCount, setCount }) => (
+            <div key={session.id} className="bg-white p-6 rounded-2xl shadow-sm border border-accent-light/30 flex justify-between items-start gap-4 group">
+              <div className="min-w-0 flex-1">
                 <h3 className="font-bold text-lg text-primary">
                   {session.name}
                   {!session.isFinished && (
@@ -129,6 +130,28 @@ export default function HistoryTab({ onViewSession }: HistoryTabProps) {
                 <p className="text-secondary text-sm mt-1">
                   {format(new Date(session.date), 'EEEE d MMMM yyyy', { locale: fr })}
                 </p>
+                <div className="flex flex-wrap gap-2 mt-3 text-xs font-bold text-secondary">
+                  <span className="bg-bg-alt/60 border border-accent-light/30 rounded-full px-2 py-1">{exerciseCount} exercice{exerciseCount > 1 ? 's' : ''}</span>
+                  <span className="bg-bg-alt/60 border border-accent-light/30 rounded-full px-2 py-1">{setCount} série{setCount > 1 ? 's' : ''}</span>
+                  {session.notes?.trim() && (
+                    <span className="bg-accent/10 text-accent border border-accent/20 rounded-full px-2 py-1">Notes</span>
+                  )}
+                </div>
+                {exercises.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {exercises.slice(0, 4).map(exercise => (
+                      <span key={exercise.id} className="text-xs text-secondary bg-bg-alt/40 border border-accent-light/20 rounded-lg px-2 py-1">
+                        <strong className="text-primary">{exercise.name}</strong>
+                        {exercise.defaultReps ? ` · ${exercise.defaultReps} reps` : ''}
+                        {exercise.defaultRestTime ? ` · ${exercise.defaultRestTime}` : ''}
+                        {exercise.rhythm ? ` · ${exercise.rhythm}` : ''}
+                      </span>
+                    ))}
+                    {exercises.length > 4 && (
+                      <span className="text-xs font-semibold text-secondary px-2 py-1">+ {exercises.length - 4}</span>
+                    )}
+                  </div>
+                )}
               </div>
               
               <div className="flex items-center gap-2">

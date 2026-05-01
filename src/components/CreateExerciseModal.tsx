@@ -14,6 +14,8 @@ export default function CreateExerciseModal({ isOpen, onClose, exerciseToEdit }:
   const [category, setCategory] = useState('');
   const [defaultReps, setDefaultReps] = useState('');
   const [defaultRestTime, setDefaultRestTime] = useState('');
+  const [defaultRhythm, setDefaultRhythm] = useState('');
+  const [rhythmEnabled, setRhythmEnabled] = useState(false);
 
   const exercises = useLiveQuery(() => db.exercises.toArray());
 
@@ -24,12 +26,15 @@ export default function CreateExerciseModal({ isOpen, onClose, exerciseToEdit }:
         setCategory(exerciseToEdit.category);
         setDefaultReps(exerciseToEdit.defaultReps || '');
         setDefaultRestTime(exerciseToEdit.defaultRestTime || '');
+        setDefaultRhythm(exerciseToEdit.defaultRhythm || '');
       } else {
         setName('');
         setCategory('');
         setDefaultReps('');
         setDefaultRestTime('');
+        setDefaultRhythm('');
       }
+      setRhythmEnabled(localStorage.getItem('app-rhythm-enabled') === 'true');
     }
   }, [isOpen, exerciseToEdit]);
 
@@ -68,7 +73,8 @@ export default function CreateExerciseModal({ isOpen, onClose, exerciseToEdit }:
         name: name.trim(),
         category: formattedCategories,
         defaultReps: defaultReps.trim() || undefined,
-        defaultRestTime: defaultRestTime.trim() || undefined
+        defaultRestTime: defaultRestTime.trim() || undefined,
+        defaultRhythm: defaultRhythm.trim() || undefined
       });
     } else {
       await db.exercises.add({
@@ -76,7 +82,8 @@ export default function CreateExerciseModal({ isOpen, onClose, exerciseToEdit }:
         category: formattedCategories,
         isDefault: false,
         defaultReps: defaultReps.trim() || undefined,
-        defaultRestTime: defaultRestTime.trim() || undefined
+        defaultRestTime: defaultRestTime.trim() || undefined,
+        defaultRhythm: defaultRhythm.trim() || undefined
       });
     }
 
@@ -84,6 +91,7 @@ export default function CreateExerciseModal({ isOpen, onClose, exerciseToEdit }:
     setCategory('');
     setDefaultReps('');
     setDefaultRestTime('');
+    setDefaultRhythm('');
     onClose();
   };
 
@@ -164,6 +172,19 @@ export default function CreateExerciseModal({ isOpen, onClose, exerciseToEdit }:
               />
             </div>
           </div>
+
+          {rhythmEnabled && (
+            <div>
+              <label className="block text-sm font-semibold text-secondary mb-2">Rythme par défaut</label>
+              <input 
+                type="text" 
+                value={defaultRhythm}
+                onChange={(e) => setDefaultRhythm(e.target.value)}
+                className="w-full bg-white border border-accent-light/50 rounded-xl px-4 py-3 text-primary focus:outline-none focus:ring-2 focus:ring-accent transition-all shadow-sm"
+                placeholder="ex: 3-1-1 ou contrôlé"
+              />
+            </div>
+          )}
           
           <div className="pt-2">
             <button 

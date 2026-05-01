@@ -7,6 +7,7 @@ export interface Exercise {
   isDefault?: boolean;
   defaultReps?: string;
   defaultRestTime?: string;
+  defaultRhythm?: string;
 }
 
 export interface Session {
@@ -15,6 +16,7 @@ export interface Session {
   name: string;
   isFinished: boolean;
   isTemplate?: boolean;
+  notes?: string;
 }
 
 export interface SessionExercise {
@@ -23,6 +25,7 @@ export interface SessionExercise {
   exerciseId: number;
   order: number;
   supersetId?: string;
+  rhythm?: string;
 }
 
 export interface Set {
@@ -52,6 +55,20 @@ db.version(1).stores({
 
 db.version(2).stores({
   sessions: '++id, date, isFinished, isTemplate',
+});
+
+db.version(3).stores({
+  exercises: '++id, name, isDefault',
+  sessions: '++id, date, isFinished, isTemplate',
+  session_exercises: '++id, sessionId, exerciseId, order',
+  sets: '++id, sessionExerciseId, order'
+});
+
+db.version(4).stores({
+  exercises: '++id, name, isDefault',
+  sessions: '++id, date, isFinished, isTemplate',
+  session_exercises: '++id, sessionId, exerciseId, order',
+  sets: '++id, sessionExerciseId, order'
 });
 
 export const DEFAULT_EXERCISES = [

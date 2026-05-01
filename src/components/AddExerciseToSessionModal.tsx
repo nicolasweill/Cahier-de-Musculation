@@ -31,7 +31,8 @@ export default function AddExerciseToSessionModal({ isOpen, onClose, sessionId }
     const sessionExerciseId = await db.session_exercises.add({
       sessionId,
       exerciseId: exercise.id!,
-      order
+      order,
+      rhythm: exercise.defaultRhythm || ''
     });
 
     // Add a default first set

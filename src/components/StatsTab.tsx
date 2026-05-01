@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
-import { format, startOfWeek, startOfMonth, isSameDay, isSameWeek, isSameMonth, isSameYear } from 'date-fns';
+import { format, startOfDay, startOfWeek, startOfMonth, isSameDay, isSameWeek, isSameMonth, isSameYear } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import {
   LineChart,
@@ -22,6 +22,7 @@ import TrainingCalendar from './TrainingCalendar';
 import LabFormulaBuilder from './LabFormulaBuilder';
 import type { CustomFormula } from '../utils/formulaUtils';
 import { evaluateFormula, parseRestTime } from '../utils/formulaUtils';
+import { getMuscleTags } from '../utils/muscleTags';
 
 export default function StatsTab() {
   const [userWeight, setUserWeight] = useState<number>(() => {
@@ -29,10 +30,11 @@ export default function StatsTab() {
     return stored ? parseFloat(stored) : 75;
   });
 
-  const [volumePeriod, setVolumePeriod] = useState<'week' | 'month'>('week');
+  const [volumePeriod, setVolumePeriod] = useState<'day' | 'week' | 'month'>('week');
   const [volumeMetric, setVolumeMetric] = useState<'volume' | 'reps'>('volume');
   const [radarMetric, setRadarMetric] = useState<'volume' | 'reps' | 'frequency'>('volume');
   const [radarPeriod, setRadarPeriod] = useState<'day' | 'week' | 'month' | 'year' | 'all'>('all');
+  const [weightUnit, setWeightUnit] = useState<'kg' | 'lbs'>('kg');
   
   const [exerciseId, setExerciseId] = useState<number | null>(null);
   const [metric, setMetric] = useState<string>('charge');
@@ -57,6 +59,13 @@ export default function StatsTab() {
     }
   }, [exercises, exerciseId]);
 
+  useEffect(() => {
+    const savedWeightUnit = localStorage.getItem('app-weight-unit');
+    if (savedWeightUnit === 'kg' || savedWeightUnit === 'lbs') {
+      setWeightUnit(savedWeightUnit);
+    }
+  }, []);
+
   const handleUserWeightChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = parseFloat(e.target.value) || 0;
     setUserWeight(val);
@@ -68,19 +77,31 @@ export default function StatsTab() {
     return repString.split(',').reduce((sum, current) => sum + (parseInt(current, 10) || 0), 0);
   };
 
-  const parseWeight = (weight: string | number, userW: number): number => {
-    if (typeof weight === 'number') return weight;
+  const parseWeight = (weight: string | number, userW: number, defaultUnit: 'kg' | 'lbs'): number => {
+    const convertToKg = (value: number, unit: 'kg' | 'lbs') => unit === 'lbs' ? value * 0.45359237 : value;
+    if (typeof weight === 'number') return convertToKg(weight, defaultUnit);
     if (!weight) return 0;
     const str = String(weight).toUpperCase();
-    if (str.includes('BW')) {
-      const parts = str.split('+');
-      let total = userW;
-      for (let i = 1; i < parts.length; i++) {
-        total += parseFloat(parts[i]) || 0;
-      }
-      return total;
+
+    if (!/[+\-]/.test(str) && !str.includes('BW')) {
+      const singleMatch = str.match(/(-?\d+(?:[.,]\d+)?)\s*(KG|KGS|LB|LBS)?/);
+      if (!singleMatch) return 0;
+      const value = parseFloat(singleMatch[1].replace(',', '.')) || 0;
+      const unit = singleMatch[2]?.startsWith('LB') ? 'lbs' : singleMatch[2]?.startsWith('KG') ? 'kg' : defaultUnit;
+      return convertToKg(value, unit);
     }
-    return parseFloat(str) || 0;
+
+    const normalized = str.replace(/\s+/g, '').replace(/-/g, '+-');
+    return normalized.split('+').reduce((total, part) => {
+      if (!part) return total;
+      if (part === 'BW') return total + userW;
+
+      const match = part.match(/^(-?\d+(?:[.,]\d+)?)(KG|KGS|LB|LBS)?$/);
+      if (!match) return total;
+      const value = parseFloat(match[1].replace(',', '.')) || 0;
+      const unit = match[2]?.startsWith('LB') ? 'lbs' : match[2]?.startsWith('KG') ? 'kg' : defaultUnit;
+      return total + convertToKg(value, unit);
+    }, 0);
   };
 
   const calculate1RM = (weight: number, reps: number) => {
@@ -112,10 +133,12 @@ export default function StatsTab() {
     const statsByCategory: Record<string, { volume: number, reps: number, frequency: number }> = {};
     
     const pChartData = [];
+    const selectedCustomFormula = customFormulas.find(f => f.id === metric);
     
     let bestRecordScore = 0;
     let bestRecordSetsBreakdown: { weight: number, reps: number }[] = [];
     let bestRecordDate = '';
+    let bestRecordUnit = 'kg';
     const now = new Date();
 
     for (const session of allSessions) {
@@ -141,11 +164,11 @@ export default function StatsTab() {
         
         const setsForSe = allSets.filter(s => s.sessionExerciseId === se.id);
         
-        const customFormula = customFormulas.find(f => f.id === metric);
+        const customFormula = selectedCustomFormula;
         
         const processedSets = setsForSe.map((set, idx) => {
           const reps = parseReps(set.reps);
-          const weight = parseWeight(set.weight, userWeight);
+          const weight = parseWeight(set.weight, userWeight, weightUnit);
           const rm1 = calculate1RM(weight, reps);
           
           let customScore = 0;
@@ -164,12 +187,14 @@ export default function StatsTab() {
           sessionTotalReps += pSet.reps;
           
           if ((pSet.volume > 0 || pSet.reps > 0) && isWithinRadarPeriod) {
-            if (!statsByCategory[exercise.category]) {
-              statsByCategory[exercise.category] = { volume: 0, reps: 0, frequency: 0 };
+            for (const muscle of getMuscleTags(exercise.category)) {
+              if (!statsByCategory[muscle]) {
+                statsByCategory[muscle] = { volume: 0, reps: 0, frequency: 0 };
+              }
+              statsByCategory[muscle].volume += pSet.volume;
+              statsByCategory[muscle].reps += pSet.reps;
+              statsByCategory[muscle].frequency += 1;
             }
-            statsByCategory[exercise.category].volume += pSet.volume;
-            statsByCategory[exercise.category].reps += pSet.reps;
-            statsByCategory[exercise.category].frequency += 1;
           }
         }
 
@@ -211,9 +236,11 @@ export default function StatsTab() {
 
       sStats.push({ date: sessionDate, volume: sessionTotalVolume, reps: sessionTotalReps });
 
-      const groupDate = volumePeriod === 'week' 
-        ? startOfWeek(sessionDate, { weekStartsOn: 1 })
-        : startOfMonth(sessionDate);
+      const groupDate = volumePeriod === 'day'
+        ? startOfDay(sessionDate)
+        : volumePeriod === 'week' 
+          ? startOfWeek(sessionDate, { weekStartsOn: 1 })
+          : startOfMonth(sessionDate);
       
       const groupKey = format(groupDate, 'yyyy-MM-dd');
       volumeGroups[groupKey] = (volumeGroups[groupKey] || 0) + (volumeMetric === 'volume' ? sessionTotalVolume : sessionTotalReps);
@@ -227,6 +254,11 @@ export default function StatsTab() {
         if (perfSessionScore > bestRecordScore) {
           bestRecordScore = perfSessionScore;
           bestRecordDate = format(sessionDate, 'dd MMM yyyy', { locale: fr });
+          bestRecordUnit = metric === '1rm' || metric === 'charge'
+            ? 'kg'
+            : selectedCustomFormula?.showUnit && selectedCustomFormula.unit
+              ? selectedCustomFormula.unit
+              : '';
           
           if (metric === '1rm' && sessionBest1RMSet) {
             bestRecordSetsBreakdown = [{ weight: sessionBest1RMSet.weight, reps: sessionBest1RMSet.reps }];
@@ -240,9 +272,11 @@ export default function StatsTab() {
     const gVolData = Object.entries(volumeGroups)
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([dateStr, val]) => ({
-        date: volumePeriod === 'week' 
-          ? `Sem. ${format(new Date(dateStr), 'dd MMM', { locale: fr })}`
-          : format(new Date(dateStr), 'MMMM', { locale: fr }),
+        date: volumePeriod === 'day'
+          ? format(new Date(dateStr), 'dd MMM', { locale: fr })
+          : volumePeriod === 'week' 
+            ? `Sem. ${format(new Date(dateStr), 'dd MMM', { locale: fr })}`
+            : format(new Date(dateStr), 'MMMM', { locale: fr }),
         Value: val
       }));
 
@@ -256,9 +290,9 @@ export default function StatsTab() {
       globalVolumeData: gVolData,
       perfChartData: pChartData,
       muscleData: radarData,
-      personalRecord: bestRecordScore > 0 ? { score: Math.round(bestRecordScore * 10) / 10, date: bestRecordDate, breakdown: bestRecordSetsBreakdown } : null,
+      personalRecord: bestRecordScore > 0 ? { score: Math.round(bestRecordScore * 10) / 10, date: bestRecordDate, breakdown: bestRecordSetsBreakdown, unit: bestRecordUnit } : null,
     };
-  }, [allSessions, allSessionExercises, allSets, exercises, volumePeriod, volumeMetric, exerciseId, metric, setsCount, userWeight, radarPeriod, customFormulas]);
+  }, [allSessions, allSessionExercises, allSets, exercises, volumePeriod, volumeMetric, exerciseId, metric, setsCount, userWeight, weightUnit, radarPeriod, customFormulas]);
 
   return (
     <div className="h-full flex flex-col">
@@ -308,9 +342,10 @@ export default function StatsTab() {
                 </select>
                 <select 
                   value={volumePeriod}
-                  onChange={(e) => setVolumePeriod(e.target.value as 'week' | 'month')}
+                  onChange={(e) => setVolumePeriod(e.target.value as 'day' | 'week' | 'month')}
                   className="bg-bg-alt border border-accent-light/50 rounded-xl px-3 py-2 text-sm text-primary focus:outline-none focus:ring-2 focus:ring-accent font-semibold cursor-pointer"
                 >
+                  <option value="day">Par jour</option>
                   <option value="week">Par semaine</option>
                   <option value="month">Par mois</option>
                 </select>
@@ -323,8 +358,9 @@ export default function StatsTab() {
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={globalVolumeData} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--theme-bg-alt)" vertical={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--theme-bg-alt)" vertical />
                     <XAxis dataKey="date" stroke="var(--theme-secondary)" tick={{ fill: 'var(--theme-secondary)', fontSize: 12 }} axisLine={false} tickLine={false} />
+                    <YAxis stroke="var(--theme-secondary)" tick={{ fill: 'var(--theme-secondary)', fontSize: 12 }} axisLine={false} tickLine={false} tickCount={5} width={56} />
                     <Tooltip 
                       contentStyle={{ backgroundColor: 'var(--theme-primary)', borderRadius: '12px', border: 'none', color: 'var(--theme-bg-alt)' }}
                       itemStyle={{ color: 'var(--theme-accent-light)', fontWeight: 'bold' }}
@@ -443,7 +479,7 @@ export default function StatsTab() {
                       {metric === '1rm' ? 'Meilleur 1RM' : metric === 'charge' ? `Score (${setsCount} meilleure${setsCount > 1 ? 's' : ''} série${setsCount > 1 ? 's' : ''})` : 'Score Lab Maximum'}
                     </p>
                     <p className="text-5xl font-bold text-center text-accent-light mb-6 drop-shadow-md">
-                      {personalRecord.score} <span className="text-2xl">kg</span>
+                      {personalRecord.score} {personalRecord.unit && <span className="text-2xl">{personalRecord.unit}</span>}
                     </p>
                     <div className="w-full bg-secondary/50 p-4 rounded-xl border border-secondary">
                       <p className="text-xs text-bg-alt mb-3 font-bold uppercase tracking-wider text-center">

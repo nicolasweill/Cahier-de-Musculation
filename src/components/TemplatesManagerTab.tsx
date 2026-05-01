@@ -1,14 +1,15 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { FileText, Eye, Trash2, Plus } from 'lucide-react';
+import { getSessionSummaries } from '../utils/sessionSummary';
 
 interface TemplatesManagerTabProps {
   onViewTemplate: (id: number) => void;
 }
 
 export default function TemplatesManagerTab({ onViewTemplate }: TemplatesManagerTabProps) {
-  const templates = useLiveQuery(() => 
-    db.sessions.filter(s => s.isTemplate === true).toArray()
+  const templates = useLiveQuery(async () => 
+    getSessionSummaries(await db.sessions.filter(s => s.isTemplate === true).toArray())
   );
 
   const handleCreateTemplate = async () => {
@@ -16,7 +17,8 @@ export default function TemplatesManagerTab({ onViewTemplate }: TemplatesManager
       date: new Date().toISOString(),
       name: "Nouveau Modèle",
       isFinished: false,
-      isTemplate: true
+      isTemplate: true,
+      notes: ''
     });
     onViewTemplate(id as number);
   };
@@ -56,7 +58,7 @@ export default function TemplatesManagerTab({ onViewTemplate }: TemplatesManager
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {templates.map(template => (
+            {templates.map(({ session: template, exercises, exerciseCount, setCount }) => (
               <div key={template.id} className="bg-white p-6 rounded-2xl shadow-sm border border-accent-light/30 flex flex-col group hover:border-accent transition-colors">
                 <div className="flex-1 mb-6">
                   <div className="flex items-start justify-between">
@@ -65,6 +67,28 @@ export default function TemplatesManagerTab({ onViewTemplate }: TemplatesManager
                       <FileText size={20} className="text-accent" />
                     </div>
                   </div>
+                  <div className="flex flex-wrap gap-2 mt-3 text-xs font-bold text-secondary">
+                    <span className="bg-bg-alt/60 border border-accent-light/30 rounded-full px-2 py-1">{exerciseCount} exercice{exerciseCount > 1 ? 's' : ''}</span>
+                    <span className="bg-bg-alt/60 border border-accent-light/30 rounded-full px-2 py-1">{setCount} série{setCount > 1 ? 's' : ''}</span>
+                  </div>
+                  {exercises.length > 0 && (
+                    <div className="mt-4 space-y-2">
+                      {exercises.slice(0, 3).map(exercise => (
+                        <div key={exercise.id} className="text-sm text-secondary bg-bg-alt/30 rounded-xl px-3 py-2 border border-accent-light/20">
+                          <div className="font-bold text-primary">{exercise.name}</div>
+                          <div className="text-xs mt-1">
+                            {exercise.setsCount} série{exercise.setsCount > 1 ? 's' : ''}
+                            {exercise.defaultReps ? ` · ${exercise.defaultReps} reps` : ''}
+                            {exercise.defaultRestTime ? ` · repos ${exercise.defaultRestTime}` : ''}
+                            {exercise.rhythm ? ` · rythme ${exercise.rhythm}` : ''}
+                          </div>
+                        </div>
+                      ))}
+                      {exercises.length > 3 && (
+                        <div className="text-xs font-semibold text-secondary">+ {exercises.length - 3} autre{exercises.length - 3 > 1 ? 's' : ''}</div>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="flex justify-between items-center pt-4 border-t border-bg-alt/50">
                   <button 

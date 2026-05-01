@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -22,6 +23,7 @@ export default function SortableExerciseCard({
   canLink = false,
   isFirstItem = false
 }: SortableExerciseCardProps) {
+  const [rhythmEnabled, setRhythmEnabled] = useState(false);
   const {
     attributes,
     listeners,
@@ -41,6 +43,10 @@ export default function SortableExerciseCard({
     () => db.exercises.get(sessionExercise.exerciseId),
     [sessionExercise.exerciseId]
   );
+
+  useEffect(() => {
+    setRhythmEnabled(localStorage.getItem('app-rhythm-enabled') === 'true');
+  }, []);
 
   const handleDelete = async () => {
     if (confirm('Voulez-vous vraiment supprimer cet exercice de la séance ?')) {
@@ -95,6 +101,15 @@ export default function SortableExerciseCard({
               {exercise.name}
             </h3>
             <span className="text-xs font-semibold text-accent">{exercise.category}</span>
+            {rhythmEnabled && (
+              <input
+                type="text"
+                value={sessionExercise.rhythm || ''}
+                onChange={(e) => db.session_exercises.update(sessionExercise.id!, { rhythm: e.target.value })}
+                className="block mt-2 w-40 bg-white/70 border border-accent-light/40 rounded-lg px-2 py-1 text-xs font-semibold text-primary focus:outline-none focus:ring-2 focus:ring-accent"
+                placeholder="Rythme ex: 3-1-1"
+              />
+            )}
           </div>
         </div>
         
